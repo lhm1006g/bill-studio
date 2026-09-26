@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+.env
+
+# FastAPI / SQLite
+backend/studio.db
+backend/*.db
+
+# Node.js / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 다운로드된 영상 파일 (용량 큰 파일)
+downloads/
+*.mp4
+*.mp3
+*.webm
+*.mkv
+*.avi
+*.mov
+
+# 환경 변수
+.env
+.env.local
+.env.production
+
+# 로그
+*.log
+logs/
+
+# faster-whisper 모델 캐시
+models/

@@ -1,0 +1,135 @@
+# 🎬 Bill Studio - 프로젝트 컨텍스트
+
+> 이 파일은 AI 세션이 새로 시작될 때 프로젝트 맥락을 유지하기 위한 파일입니다.
+> 작업 진행 시 반드시 이 파일을 먼저 읽고, 진행 상황을 업데이트하며 작업하세요.
+
+---
+
+## 📌 프로젝트 개요
+
+- **프로젝트명**: Bill Studio
+- **목적**: 개인용 올인원 스튜디오 웹앱 (맥미니 로컬 서버에서 실행)
+- **사용자**: 본인(Bill)만 사용
+- **외부 접속**: Cloudflare Tunnel로 외부에서도 접속 가능하게 구성 예정
+
+---
+
+## 🏗️ 확정된 기술 스택
+
+| 영역 | 기술 | 비고 |
+|------|------|------|
+| Frontend (화면) | **Vite + React** | Next.js 대신 Vite 선택 (개인용, 가벼움) |
+| Backend (작업처리) | **FastAPI (Python)** | 영상처리, AI 등 무거운 작업 담당 |
+| Database | **SQLite** | 로컬 파일 DB (studio.db) |
+| 외부 접속 | **Cloudflare Tunnel** | ngrok 대신 선택 (무료, 안정적) |
+| 서버 자동실행 | **PM2 + launchd** | 맥미니 부팅 시 자동 서버 실행 |
+
+---
+
+## 📁 프로젝트 폴더 구조
+
+```
+/Users/bill/projects/my/bill_studio/
+├── GEMINI.md                ← 현재 파일 (AI 컨텍스트)
+├── frontend/                ← Vite + React
+│   ├── src/
+│   │   ├── pages/
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── Downloader.jsx
+│   │   │   ├── Editor.jsx
+│   │   │   ├── Subtitle.jsx
+│   │   │   ├── Schedule.jsx
+│   │   │   ├── News.jsx
+│   │   │   └── AiChat.jsx
+│   │   ├── components/
+│   │   │   ├── Sidebar.jsx
+│   │   │   └── Header.jsx
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   ├── package.json
+│   └── vite.config.js
+│
+├── backend/                 ← FastAPI (Python)
+│   ├── routers/
+│   │   ├── downloader.py
+│   │   ├── editor.py
+│   │   ├── subtitle.py
+│   │   ├── schedule.py
+│   │   ├── news.py
+│   │   └── ai_chat.py
+│   ├── models/
+│   │   └── database.py
+│   ├── main.py
+│   ├── requirements.txt
+│   └── studio.db
+│
+└── README.md
+```
+
+---
+
+## 🎯 기능 목록 & 핵심 라이브러리
+
+| # | 기능 | 라이브러리 | 설명 |
+|---|------|-----------|------|
+| 1 | **유튜브/영상 다운로드** | `yt-dlp` | URL 입력 → 해상도 선택 → 다운로드 |
+| 2 | **동영상 편집** | `ffmpeg-python` | 자르기, 합치기, 포맷 변환 |
+| 3 | **AI 자막 생성/편집** | `faster-whisper` | 로컬 AI 자막 생성, SRT 편집 |
+| 4 | **일정 관리** | SQLite | 캘린더 UI, 일정 CRUD |
+| 5 | **뉴스 리서치** | `feedparser`, `newspaper3k` | RSS 구독, AI 요약 |
+| 6 | **AI 어시스턴트 채팅** | `ollama` | 로컬 LLM, 대화 기록 저장 |
+
+---
+
+## 🚀 개발 단계 (Phase)
+
+- [ ] **Phase 1** - 기반 구조 세팅 (Vite + FastAPI + SQLite + 사이드바 UI)
+- [ ] **Phase 2** - 유튜브 다운로드 기능
+- [ ] **Phase 3** - AI 자막 생성/편집 기능
+- [ ] **Phase 4** - 동영상 편집 기능
+- [ ] **Phase 5** - 일정 관리 기능
+- [ ] **Phase 6** - 뉴스 리서치 기능
+- [ ] **Phase 7** - AI 어시스턴트 채팅 기능
+- [ ] **Phase 8** - 외부 접속 (Cloudflare Tunnel + PM2 자동실행)
+
+---
+
+## 🎨 디자인 방향
+
+- **테마**: 다크모드 기본
+- **색상**: 딥 그레이 배경 + 보라/파랑 포인트 컬러
+- **레이아웃**: 왼쪽 사이드바 + 오른쪽 콘텐츠 영역
+- **폰트**: Inter (Google Fonts)
+- **스타일**: 글래스모피즘 + 모던 미니멀
+
+---
+
+## 🔌 API 포트 정보
+
+- Frontend (Vite): `http://localhost:5173`
+- Backend (FastAPI): `http://localhost:8000`
+
+---
+
+## 📝 현재 진행 상황
+
+> ⚠️ 아직 개발 시작 전 (계획 단계)
+> 마지막 업데이트: 2026-09-26
+
+### 완료된 작업
+- [x] 기술 스택 확정 (Vite + FastAPI + SQLite)
+- [x] 전체 기능 목록 확정
+- [x] 개발 단계(Phase) 계획 수립
+- [x] GEMINI.md 컨텍스트 파일 생성
+
+### 다음 할 일
+- [ ] Phase 1 시작: Vite + React 프로젝트 생성
+
+---
+
+## ⚙️ 맥미니 환경 체크리스트 (Phase 1 시작 전 확인)
+
+- [ ] Node.js 설치 확인 (`node -v`)
+- [ ] Python 설치 확인 (`python3 -v`)
+- [ ] ffmpeg 설치 확인 (`ffmpeg -version`)
+- [ ] ollama 설치 확인 (`ollama -v`)
