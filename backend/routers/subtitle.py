@@ -6,12 +6,10 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 from faster_whisper import WhisperModel
+from utils import find_download_file, DOWNLOAD_DIR
 
 router = APIRouter(prefix="/api/subtitle", tags=["subtitle"])
 
-# 프로젝트 루트 기준 downloads 폴더
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-DOWNLOAD_DIR = BASE_DIR / "downloads"
 
 # 캐시된 Whisper 모델 인스턴스 (지연 로딩)
 _loaded_models = {}
@@ -65,8 +63,8 @@ class SaveRequest(BaseModel):
 @router.get("/get")
 async def get_subtitles(file: str):
     """이미 추출되어 저장된 자막이 있는지 확인하고 반환"""
-    file_path = DOWNLOAD_DIR / file
-    if not file_path.exists():
+    file_path = find_download_file(file)
+    if not file_path:
         raise HTTPException(status_code=404, detail="영상 파일이 없습니다.")
 
     json_path = DOWNLOAD_DIR / f"{file_path.stem}.subtitles.json"
@@ -74,19 +72,20 @@ async def get_subtitles(file: str):
         try:
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return {"exists": True, "segments": data.get("segments", []), "file": file}
+            return {"exists": True, "segments": data.get("segments", []), "file": file_path.name}
         except Exception:
             pass
 
-    return {"exists": False, "segments": [], "file": file}
+    return {"exists": False, "segments": [], "file": file_path.name}
 
 
 @router.post("/extract")
 async def extract_subtitles(req: ExtractRequest):
     """faster-whisper를 사용해 영상에서 한국어 음성을 인식하여 자막 추출"""
-    file_path = DOWNLOAD_DIR / req.file
-    if not file_path.exists() or not file_path.is_file():
+    file_path = find_download_file(req.file)
+    if not file_path:
         raise HTTPException(status_code=404, detail="영상 파일을 찾을 수 없습니다.")
+
 
     try:
         model = get_whisper_model(req.model_size)
@@ -143,8 +142,8 @@ async def extract_subtitles(req: ExtractRequest):
 @router.post("/save")
 async def save_subtitles(req: SaveRequest):
     """사용자가 웹 UI에서 수정한 자막 저장"""
-    file_path = DOWNLOAD_DIR / req.file
-    if not file_path.exists():
+    file_path = find_download_file(req.file)
+    if not file_path:
         raise HTTPException(status_code=404, detail="영상 파일이 없습니다.")
 
     json_path = DOWNLOAD_DIR / f"{file_path.stem}.subtitles.json"
@@ -154,7 +153,7 @@ async def save_subtitles(req: SaveRequest):
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump({
-            "file": req.file,
+            "file": file_path.name,
             "segments": segments_data,
         }, f, ensure_ascii=False, indent=2)
 
@@ -168,9 +167,11 @@ async def save_subtitles(req: SaveRequest):
 @router.get("/export/srt")
 async def export_srt(file: str):
     """SRT 자막 파일 다운로드"""
-    file_path = DOWNLOAD_DIR / file
-    srt_path = DOWNLOAD_DIR / f"{file_path.stem}.srt"
+    file_path = find_download_file(file)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="영상 파일이 없습니다.")
 
+    srt_path = DOWNLOAD_DIR / f"{file_path.stem}.srt"
     if not srt_path.exists():
         raise HTTPException(status_code=404, detail="SRT 자막 파일이 없습니다. 먼저 자막을 추출해주세요.")
 
@@ -179,3 +180,4 @@ async def export_srt(file: str):
         media_type="application/x-subrip",
         filename=f"{file_path.stem}.srt",
     )
+

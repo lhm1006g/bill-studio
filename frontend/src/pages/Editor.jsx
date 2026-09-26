@@ -57,6 +57,8 @@ export default function Editor() {
   const [savingSubs, setSavingSubs] = useState(false)
   const [subsSavedNotice, setSubsSavedNotice] = useState(false)
   const [activeTab, setActiveTab] = useState('subtitle') // 'subtitle' | 'cut'
+  const [converting, setConverting] = useState(false)
+
 
   const activeSegmentRef = useRef(null)
   const scriptListRef = useRef(null)
@@ -114,7 +116,32 @@ export default function Editor() {
     }
   }
 
+  // H.264 변환 실행
+  async function handleConvertH264() {
+    if (!currentFile) return
+    setConverting(true)
+    try {
+      const res = await fetch('/api/editor/convert-h264', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: currentFile }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.detail || 'H.264 변환 실패')
+      }
+      const data = await res.json()
+      loadFiles()
+      handleSelectFile(data.output_file)
+    } catch (e) {
+      alert('변환 중 오류: ' + e.message)
+    } finally {
+      setConverting(false)
+    }
+  }
+
   // 기존 저장된 자막 불러오기
+
   async function loadExistingSubtitles(filename) {
     setSubError('')
     try {
@@ -381,17 +408,40 @@ export default function Editor() {
                   </div>
                 </div>
 
+                {/* 브라우저 비호환 코덱(VP9/Opus in MP4) 자동 감지 및 1초 변환 안내 */}
+                {mediaInfo?.is_browser_friendly === false && (
+                  <div className="codec-warning-banner">
+                    <div className="codec-warning-info">
+                      <span className="warning-icon">⚠️</span>
+                      <div>
+                        <strong>브라우저 비호환 코덱 감지 ({mediaInfo.video?.codec || 'VP9'})</strong>
+                        <p>현재 영상은 Safari 등 일부 브라우저에서 재생이 원활하지 않을 수 있습니다.</p>
+                      </div>
+                    </div>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={handleConvertH264}
+                      disabled={converting}
+                    >
+                      {converting ? '⚡ 초고속 변환 중...' : '⚡ 브라우저 호환 H.264로 변환'}
+                    </button>
+                  </div>
+                )}
+
                 {/* 플레이어 래퍼 */}
                 <div className="video-wrapper">
                   <video
                     ref={videoRef}
+                    key={mediaInfo?.url}
                     className="video-player"
                     controls
+                    preload="auto"
                     src={mediaInfo?.url}
                     onTimeUpdate={handleTimeUpdate}
                     onLoadedMetadata={handleLoadedMetadata}
                   />
                 </div>
+
 
                 {/* 💬 핵심 기능: 영상 밑 실시간 자막 디스플레이 바 */}
                 <div className="subtitle-display-container">

@@ -132,12 +132,16 @@ async def download_video(url: str, format_id: str):
                 "progress_hooks": [progress_hook],
             }
         else:
-            # height 기반 포맷 선택: 해당 해상도의 영상 스트림 + 최적 오디오 스트림 결합
+            # 브라우저 완벽 호환: H.264(avc1) 비디오 + AAC(m4a) 오디오 최우선 결합
             height = int(format_id)
             ydl_opts = {
                 **DOWNLOAD_OPTS,
                 "format": (
-                    f"bestvideo[height={height}]+bestaudio"
+                    f"bestvideo[height={height}][vcodec^=avc]+bestaudio[ext=m4a]"
+                    f"/bestvideo[height<={height}][vcodec^=avc]+bestaudio[ext=m4a]"
+                    f"/bestvideo[height={height}][ext=mp4]+bestaudio[ext=m4a]"
+                    f"/bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]"
+                    f"/bestvideo[height={height}]+bestaudio"
                     f"/bestvideo[height<={height}]+bestaudio"
                     f"/best[height<={height}]"
                     f"/best"
@@ -147,6 +151,7 @@ async def download_video(url: str, format_id: str):
                 "overwrites": True,
                 "progress_hooks": [progress_hook],
             }
+
 
 
         loop = asyncio.get_event_loop()
