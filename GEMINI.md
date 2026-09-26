@@ -83,7 +83,7 @@
 
 ## 🚀 개발 단계 (Phase)
 
-- [ ] **Phase 1** - 기반 구조 세팅 (Vite + FastAPI + SQLite + 사이드바 UI)
+- [x] **Phase 1** - 기반 구조 세팅 (Vite + FastAPI + SQLite + 사이드바 UI) ✅
 - [ ] **Phase 2** - 유튜브 다운로드 기능
 - [ ] **Phase 3** - AI 자막 생성/편집 기능
 - [ ] **Phase 4** - 동영상 편집 기능
@@ -113,17 +113,21 @@
 
 ## 📝 현재 진행 상황
 
-> ⚠️ 아직 개발 시작 전 (계획 단계)
-> 마지막 업데이트: 2026-09-26
+> 마지막 업데이트: 2026-09-27
 
 ### 완료된 작업
 - [x] 기술 스택 확정 (Vite + FastAPI + SQLite)
 - [x] 전체 기능 목록 확정
 - [x] 개발 단계(Phase) 계획 수립
 - [x] GEMINI.md 컨텍스트 파일 생성
+- [x] GitHub 레포 연결 (https://github.com/lhm1006g/bill-studio)
+- [x] Phase 1 완료 - Vite+React 프론트엔드 생성, FastAPI 백엔드 기반, 사이드바+라우팅 UI
+  - Node.js 20 업그레이드 필요 (`export PATH=/opt/homebrew/opt/node@20/bin:$PATH`)
+  - 프론트 실행: `cd frontend && npm run dev`
+  - 백엔드 실행: `cd backend && uvicorn main:app --reload --port 8000`
 
 ### 다음 할 일
-- [ ] Phase 1 시작: Vite + React 프로젝트 생성
+- [ ] Phase 2 시작: 유튜브 다운로드 기능 (yt-dlp)
 
 ---
 
