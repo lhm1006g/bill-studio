@@ -128,7 +128,8 @@
   - SSE(Server-Sent Events) 실시간 다운로드 진행률, 다운로드 속도, 남은 시간
   - MP3 음원 추출 지원
   - Mac Finder 폴더 열기 연동 및 최근 다운로드 목록 표시
-  - 다운로드 파일 저장 위치: `~/Downloads/BillStudio`
+  - 다운로드 파일 저장 위치: 프로젝트 하위 `downloads/` (`/Users/bill/projects/my/bill_studio/downloads`)
+
 
 ### 다음 할 일
 - [ ] Phase 3: AI 자막 생성/편집 기능 (`faster-whisper`)

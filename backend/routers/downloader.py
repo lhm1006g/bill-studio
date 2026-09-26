@@ -8,9 +8,11 @@ import yt_dlp
 
 router = APIRouter(prefix="/api/download", tags=["downloader"])
 
-# 다운로드 저장 폴더
-DOWNLOAD_DIR = Path.home() / "Downloads" / "BillStudio"
+# 다운로드 저장 폴더 (프로젝트 하위 /downloads)
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+DOWNLOAD_DIR = BASE_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # 정보 조회용 - format 지정 없이 순수 포맷 목록만 추출
 INFO_OPTS = {
