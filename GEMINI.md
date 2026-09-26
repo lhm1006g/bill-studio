@@ -85,8 +85,8 @@
 
 - [x] **Phase 1** - 기반 구조 세팅 (Vite + FastAPI + SQLite + 사이드바 UI) ✅
 - [x] **Phase 2** - 유튜브 다운로드 기능 (yt-dlp 고화질 1080p~4K + SSE 실시간 진행률 + 파일목록) ✅
-- [ ] **Phase 3** - AI 자막 생성/편집 기능 (faster-whisper)
-- [ ] **Phase 4** - 동영상 편집 기능 (ffmpeg-python)
+- [x] **Phase 3** - AI 자막 생성/편집 기능 (faster-whisper 한국어 음성인식 + 실시간 자막 싱크 바 + 스크립트 대본 편집기 + SRT 다운로드) ✅
+- [ ] **Phase 4** - 동영상 편집 기능 (ffmpeg-python 기반 확장)
 - [ ] **Phase 5** - 일정 관리 기능
 - [ ] **Phase 6** - 뉴스 리서치 기능
 - [ ] **Phase 7** - AI 어시스턴트 채팅 기능
@@ -130,16 +130,20 @@
   - Mac Finder 폴더 열기 연동 및 최근 다운로드 목록 표시
   - 다운로드 파일 저장 위치: 프로젝트 하위 `downloads/` (`/Users/bill/projects/my/bill_studio/downloads`)
   - 다운로드 목록 클릭 시 동영상 편집기(`/editor?file=...`) 직행 연동
+- [x] Phase 3 완료 - AI 자막 생성 및 편집 기능
+  - `faster-whisper` 로컬 AI 모델 기반 한국어 음성 자동 인식
+  - 영상 재생에 맞춰 영상 바로 밑에 실시간으로 출력되는 **글래스모피즘 자막 바**
+  - 자막 타임코드 클릭 시 해당 영상 위치로 즉시 점프(Seek) 기능
+  - 오타 즉시 수정 인라인 편집 및 `downloads/` 내 `.json` / `.srt` 파일 자동 저장/내보내기
 - [x] Phase 4 (부분 선행 완료) - 동영상 편집기 기본 기능
   - FastAPI `/api/media` 정적 비디오 스트리밍 서빙
   - `ffprobe` 기반 영상 정밀 메타데이터(해상도, 코덱, FPS, 길이, 파일크기) 추출
   - 브라우저 비디오 플레이어 연동 및 재생 위치 기반 시작/종료점 선택
   - `ffmpeg` 기반 초고속 무손실 구간 자르기(`-c copy` / 인코딩 fallback) 기능
 
-
-
 ### 다음 할 일
-- [ ] Phase 3: AI 자막 생성/편집 기능 (`faster-whisper`)
+- [ ] Phase 4 고도화 또는 Phase 5 (일정 관리 기능)
+
 
 
 ---

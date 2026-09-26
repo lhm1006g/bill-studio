@@ -47,6 +47,20 @@ export default function Editor() {
   const [cutResult, setCutResult] = useState(null)
   const [cutError, setCutError] = useState('')
 
+  // AI 자막 상태
+  const [subtitles, setSubtitles] = useState([])
+  const [subtitlesLoaded, setSubtitlesLoaded] = useState(false)
+  const [extractingSubs, setExtractingSubs] = useState(false)
+  const [subsModel, setSubsModel] = useState('base')
+  const [showSubtitles, setShowSubtitles] = useState(true)
+  const [subError, setSubError] = useState('')
+  const [savingSubs, setSavingSubs] = useState(false)
+  const [subsSavedNotice, setSubsSavedNotice] = useState(false)
+  const [activeTab, setActiveTab] = useState('subtitle') // 'subtitle' | 'cut'
+
+  const activeSegmentRef = useRef(null)
+  const scriptListRef = useRef(null)
+
   useEffect(() => {
     loadFiles()
   }, [])
@@ -54,8 +68,11 @@ export default function Editor() {
   useEffect(() => {
     if (currentFile) {
       loadMediaInfo(currentFile)
+      loadExistingSubtitles(currentFile)
     } else {
       setMediaInfo(null)
+      setSubtitles([])
+      setSubtitlesLoaded(false)
     }
   }, [currentFile])
 
@@ -94,6 +111,95 @@ export default function Editor() {
       setInfoError(e.message)
     } finally {
       setLoadingInfo(false)
+    }
+  }
+
+  // 기존 저장된 자막 불러오기
+  async function loadExistingSubtitles(filename) {
+    setSubError('')
+    try {
+      const res = await fetch(`/api/subtitle/get?file=${encodeURIComponent(filename)}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.exists && data.segments) {
+          setSubtitles(data.segments)
+          setSubtitlesLoaded(true)
+        } else {
+          setSubtitles([])
+          setSubtitlesLoaded(false)
+        }
+      }
+    } catch {
+      setSubtitles([])
+      setSubtitlesLoaded(false)
+    }
+  }
+
+  // AI 자막 추출 실행
+  async function handleExtractSubtitles() {
+    if (!currentFile) return
+    setExtractingSubs(true)
+    setSubError('')
+    try {
+      const res = await fetch('/api/subtitle/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file: currentFile,
+          model_size: subsModel,
+          language: 'ko',
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.detail || '자막 추출에 실패했습니다.')
+      }
+
+      const data = await res.json()
+      setSubtitles(data.segments || [])
+      setSubtitlesLoaded(true)
+    } catch (e) {
+      setSubError(e.message)
+    } finally {
+      setExtractingSubs(false)
+    }
+  }
+
+  // 자막 수정 내용 저장
+  async function handleSaveSubtitles() {
+    if (!currentFile || subtitles.length === 0) return
+    setSavingSubs(true)
+    try {
+      const res = await fetch('/api/subtitle/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file: currentFile,
+          segments: subtitles,
+        }),
+      })
+      if (res.ok) {
+        setSubsSavedNotice(true)
+        setTimeout(() => setSubsSavedNotice(false), 2500)
+      }
+    } catch (e) {
+      alert('자막 저장 실패: ' + e.message)
+    } finally {
+      setSavingSubs(false)
+    }
+  }
+
+  function handleSegmentTextChange(idx, newText) {
+    const updated = [...subtitles]
+    updated[idx] = { ...updated[idx], text: newText }
+    setSubtitles(updated)
+  }
+
+  function handleSeekTo(sec) {
+    if (videoRef.current) {
+      videoRef.current.currentTime = sec
+      videoRef.current.play().catch(() => {})
     }
   }
 
@@ -167,13 +273,18 @@ export default function Editor() {
 
       const data = await res.json()
       setCutResult(data)
-      loadFiles() // 파일 목록 갱신
+      loadFiles()
     } catch (e) {
       setCutError(e.message)
     } finally {
       setCutting(false)
     }
   }
+
+  // 현재 시간에 일치하는 자막 세그먼트
+  const activeSegment = subtitles.find(
+    (s) => currentTime >= s.start && currentTime <= s.end
+  )
 
   return (
     <div className="editor-page">
@@ -183,9 +294,11 @@ export default function Editor() {
           ← 다운로더로 돌아가기
         </button>
         {currentFile && (
-          <button className="btn btn-secondary btn-sm" onClick={() => setSearchParams({})}>
-            📂 다른 영상 선택
-          </button>
+          <div className="topbar-actions">
+            <button className="btn btn-secondary btn-sm" onClick={() => setSearchParams({})}>
+              📂 다른 영상 선택
+            </button>
+          </div>
         )}
       </div>
 
@@ -194,7 +307,7 @@ export default function Editor() {
         <div className="card file-picker-card">
           <div className="picker-header">
             <h2>🎬 편집할 영상을 선택하세요</h2>
-            <p>다운로드된 영상 목록에서 편집할 파일을 클릭하세요.</p>
+            <p>다운로드된 영상 목록에서 편집 및 자막을 생성할 파일을 클릭하세요.</p>
           </div>
 
           {loadingFiles ? (
@@ -268,6 +381,7 @@ export default function Editor() {
                   </div>
                 </div>
 
+                {/* 플레이어 래퍼 */}
                 <div className="video-wrapper">
                   <video
                     ref={videoRef}
@@ -279,15 +393,188 @@ export default function Editor() {
                   />
                 </div>
 
+                {/* 💬 핵심 기능: 영상 밑 실시간 자막 디스플레이 바 */}
+                <div className="subtitle-display-container">
+                  <div className="subtitle-display-header">
+                    <span className="sub-title-tag">
+                      💬 실시간 자막 {subtitlesLoaded ? `(${subtitles.length}문장)` : ''}
+                    </span>
+                    <div className="sub-display-actions">
+                      <button
+                        className={`sub-toggle-btn ${showSubtitles ? 'active' : ''}`}
+                        onClick={() => setShowSubtitles(!showSubtitles)}
+                        title="자막 표시 토글"
+                      >
+                        {showSubtitles ? '👁️ 자막 켜짐' : '🚫 자막 숨김'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {showSubtitles && (
+                    <div className={`live-subtitle-bar ${activeSegment ? 'active' : 'idle'}`}>
+                      {activeSegment ? (
+                        <span className="subtitle-active-text">{activeSegment.text}</span>
+                      ) : (
+                        <span className="subtitle-placeholder">
+                          {subtitlesLoaded
+                            ? '⋯ (음성 대기 중)'
+                            : '자막이 아직 없습니다. 아래에서 [AI 자막 추출]을 눌러보세요.'}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <div className="playback-status">
                   <span>현재 위치: <strong>{formatSeconds(currentTime)}</strong></span>
                   <span>전체 길이: <strong>{formatSeconds(duration)}</strong></span>
                 </div>
               </div>
 
-              {/* 편집 도구 패널 */}
-              <div className="editor-panels">
-                {/* 1. 구간 자르기 도구 */}
+              {/* 하단 탭 메뉴: AI 자막 / 구간 자르기 */}
+              <div className="tab-nav">
+                <button
+                  className={`tab-btn ${activeTab === 'subtitle' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('subtitle')}
+                >
+                  🎙️ AI 자막 생성 및 편집 {subtitlesLoaded && `(${subtitles.length})`}
+                </button>
+                <button
+                  className={`tab-btn ${activeTab === 'cut' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('cut')}
+                >
+                  ✂️ 구간 자르기 (Fast Cut)
+                </button>
+              </div>
+
+              {/* 탭 1: AI 자막 패널 */}
+              {activeTab === 'subtitle' && (
+                <div className="card subtitle-panel-card">
+                  <div className="sub-panel-header">
+                    <div>
+                      <h3>🎙️ AI 음성인식 자막 스크립트</h3>
+                      <p className="tool-desc">
+                        로컬 AI가 한국어 음성을 문장 단위로 자동 추출하며, 클릭 시 해당 시간대로 점프합니다.
+                      </p>
+                    </div>
+
+                    <div className="sub-header-controls">
+                      {!subtitlesLoaded && (
+                        <div className="model-selector-row">
+                          <label>모델:</label>
+                          <select
+                            className="input select-input"
+                            value={subsModel}
+                            onChange={(e) => setSubsModel(e.target.value)}
+                            disabled={extractingSubs}
+                          >
+                            <option value="tiny">초고속 (tiny)</option>
+                            <option value="base">표준 추천 (base)</option>
+                            <option value="small">고정밀 (small)</option>
+                          </select>
+                          <button
+                            className="btn btn-primary"
+                            onClick={handleExtractSubtitles}
+                            disabled={extractingSubs}
+                          >
+                            {extractingSubs ? '⏳ AI 음성 분석 중...' : '✨ AI 자막 추출하기'}
+                          </button>
+                        </div>
+                      )}
+
+                      {subtitlesLoaded && (
+                        <div className="sub-loaded-actions">
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={handleExtractSubtitles}
+                            disabled={extractingSubs}
+                          >
+                            {extractingSubs ? '⏳ 재추출 중...' : '🔄 다시 추출'}
+                          </button>
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={handleSaveSubtitles}
+                            disabled={savingSubs}
+                          >
+                            {savingSubs ? '💾 저장 중...' : '💾 자막 저장'}
+                          </button>
+                          <a
+                            className="btn btn-secondary btn-sm"
+                            href={`/api/subtitle/export/srt?file=${encodeURIComponent(currentFile)}`}
+                            download
+                          >
+                            📥 .SRT 다운로드
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {subsSavedNotice && (
+                    <div className="notice-banner success">
+                      ✅ 자막 수정 내용이 성공적으로 저장되었습니다!
+                    </div>
+                  )}
+
+                  {subError && <p className="error-msg">❌ {subError}</p>}
+
+                  {extractingSubs && (
+                    <div className="extracting-box">
+                      <div className="spinner"></div>
+                      <p>로컬 AI(Whisper)가 영상의 음성을 한글로 변환하는 중입니다...</p>
+                      <span className="extracting-hint">영상 길이에 따라 수 초~수십 초 소요됩니다.</span>
+                    </div>
+                  )}
+
+                  {/* 전체 자막 스크립트 목록 */}
+                  {subtitlesLoaded && subtitles.length > 0 && (
+                    <div className="script-container" ref={scriptListRef}>
+                      <div className="script-list">
+                        {subtitles.map((seg, idx) => {
+                          const isActive = currentTime >= seg.start && currentTime <= seg.end
+                          return (
+                            <div
+                              key={seg.id || idx}
+                              ref={isActive ? activeSegmentRef : null}
+                              className={`script-item ${isActive ? 'active' : ''}`}
+                            >
+                              <button
+                                className="script-time-btn"
+                                onClick={() => handleSeekTo(seg.start)}
+                                title="이 시간대로 영상 재생 이동"
+                              >
+                                ⏱ {formatSeconds(seg.start)}
+                              </button>
+
+                              <input
+                                className="script-text-input"
+                                value={seg.text}
+                                onChange={(e) => handleSegmentTextChange(idx, e.target.value)}
+                                placeholder="자막 내용 입력..."
+                              />
+
+                              <span className="script-dur">
+                                {formatSeconds(seg.end)}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {!subtitlesLoaded && !extractingSubs && (
+                    <div className="empty-sub-state">
+                      <span className="empty-sub-icon">🎙️</span>
+                      <h4>아직 생성된 자막이 없습니다</h4>
+                      <p>위의 <strong>[✨ AI 자막 추출하기]</strong> 버튼을 누르면 영상의 음성을 즉시 한글 자막으로 만듭니다.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 탭 2: 구간 자르기 패널 */}
+              {activeTab === 'cut' && (
                 <div className="card tool-card">
                   <div className="tool-title">
                     <h3>✂️ 구간 자르기 (Fast Cut)</h3>
@@ -372,23 +659,7 @@ export default function Editor() {
                     </div>
                   )}
                 </div>
-
-                {/* 2. AI 자막 생성 파이프라인 연계 */}
-                <div className="card pipeline-card">
-                  <div className="tool-title">
-                    <h3>🎙️ AI 자막 연계 (Phase 3)</h3>
-                    <span className="tool-desc">이 영상의 음성을 인식해 자동으로 자막을 생성합니다.</span>
-                  </div>
-                  <div className="pipeline-action">
-                    <button
-                      className="btn btn-accent-glow"
-                      onClick={() => navigate(`/subtitle?file=${encodeURIComponent(currentFile)}`)}
-                    >
-                      ✨ 이 영상으로 AI 자막 생성하기
-                    </button>
-                  </div>
-                </div>
-              </div>
+              )}
             </>
           )}
         </div>
