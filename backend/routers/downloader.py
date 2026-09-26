@@ -19,19 +19,12 @@ INFO_OPTS = {
     "skip_download": True,
 }
 
-# 다운로드용 - iOS 우회로 403 해결
+# 다운로드용 공통 설정 (deno JS 런타임으로 n-sig 자동 해결)
 DOWNLOAD_OPTS = {
     "quiet": True,
     "no_warnings": True,
-    "extractor_args": {
-        "youtube": {
-            "player_client": ["ios", "android", "web"],
-        }
-    },
-    "http_headers": {
-        "User-Agent": "com.google.ios.youtube/19.29.1 CFNetwork/1568.100.1 Darwin/24.0.0",
-    },
 }
+
 
 
 class VideoInfoRequest(BaseModel):
@@ -128,6 +121,7 @@ async def download_video(url: str, format_id: str):
                 **DOWNLOAD_OPTS,
                 "format": "bestaudio/best",
                 "outtmpl": str(DOWNLOAD_DIR / "%(title)s.%(ext)s"),
+                "overwrites": True,
                 "postprocessors": [{
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
@@ -136,20 +130,22 @@ async def download_video(url: str, format_id: str):
                 "progress_hooks": [progress_hook],
             }
         else:
-            # height 기반 포맷 선택: 영상+음성 별도 스트림 후 ffmpeg 합성
+            # height 기반 포맷 선택: 해당 해상도의 영상 스트림 + 최적 오디오 스트림 결합
             height = int(format_id)
             ydl_opts = {
                 **DOWNLOAD_OPTS,
                 "format": (
-                    f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]"
+                    f"bestvideo[height={height}]+bestaudio"
                     f"/bestvideo[height<={height}]+bestaudio"
                     f"/best[height<={height}]"
                     f"/best"
                 ),
-                "outtmpl": str(DOWNLOAD_DIR / "%(title)s.%(ext)s"),
+                "outtmpl": str(DOWNLOAD_DIR / "%(title)s [%(height)sp].%(ext)s"),
                 "merge_output_format": "mp4",
+                "overwrites": True,
                 "progress_hooks": [progress_hook],
             }
+
 
         loop = asyncio.get_event_loop()
 
