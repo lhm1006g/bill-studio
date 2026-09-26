@@ -63,13 +63,20 @@ export default function Editor() {
   const [voices, setVoices] = useState([])
   const [selectedVoice, setSelectedVoice] = useState('ko-KR-SunHiNeural')
   const [ttsRate, setTtsRate] = useState('+10%')
-  const [origVolume, setOrigVolume] = useState(0.15)
+  const [origVolume, setOrigVolume] = useState(0.1)
   const [dubbing, setDubbing] = useState(false)
   const [dubResult, setDubResult] = useState(null)
   const [dubError, setDubError] = useState('')
   const [previewing, setPreviewing] = useState(false)
 
-
+  // BGM (배경음악) 상태
+  const [bgmTracks, setBgmTracks] = useState([])
+  const [selectedBgm, setSelectedBgm] = useState('')
+  const [bgmVolume, setBgmVolume] = useState(0.15)
+  const [playingBgmId, setPlayingBgmId] = useState(null)
+  const [uploadingBgm, setUploadingBgm] = useState(false)
+  const bgmAudioRef = useRef(null)
+  const bgmFileInputRef = useRef(null)
 
   const activeSegmentRef = useRef(null)
   const scriptListRef = useRef(null)
@@ -77,6 +84,7 @@ export default function Editor() {
   useEffect(() => {
     loadFiles()
     loadVoices()
+    loadBgmTracks()
   }, [])
 
   async function loadVoices() {
@@ -90,6 +98,61 @@ export default function Editor() {
       // ignore
     }
   }
+
+  async function loadBgmTracks() {
+    try {
+      const res = await fetch('/api/tts/bgm/list')
+      if (res.ok) {
+        const data = await res.json()
+        setBgmTracks(data.tracks || [])
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  function togglePlayBgm(track) {
+    if (playingBgmId === track.id) {
+      if (bgmAudioRef.current) {
+        bgmAudioRef.current.pause()
+      }
+      setPlayingBgmId(null)
+    } else {
+      if (bgmAudioRef.current) {
+        bgmAudioRef.current.pause()
+      }
+      const audio = new Audio(track.url)
+      audio.volume = Math.max(0.1, Math.min(1.0, bgmVolume * 2))
+      audio.loop = true
+      audio.play().catch(() => {})
+      bgmAudioRef.current = audio
+      setPlayingBgmId(track.id)
+    }
+  }
+
+  async function handleBgmUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const formData = new FormData()
+    formData.append('file', file)
+    setUploadingBgm(true)
+    try {
+      const res = await fetch('/api/tts/bgm/upload', {
+        method: 'POST',
+        body: formData,
+      })
+      if (!res.ok) throw new Error('BGM 업로드 실패')
+      const data = await res.json()
+      await loadBgmTracks()
+      setSelectedBgm(data.filename)
+    } catch (err) {
+      alert(err.message)
+    } finally {
+      setUploadingBgm(false)
+      if (bgmFileInputRef.current) bgmFileInputRef.current.value = ''
+    }
+  }
+
 
   useEffect(() => {
     if (currentFile) {
@@ -216,9 +279,12 @@ export default function Editor() {
           voice: selectedVoice,
           rate: ttsRate,
           original_volume: origVolume,
+          bgm_file: selectedBgm || null,
+          bgm_volume: bgmVolume,
           tts_volume: 1.0,
         }),
       })
+
 
       if (!res.ok) {
         const err = await res.json()
@@ -778,11 +844,75 @@ export default function Editor() {
                         </div>
                       </div>
 
+                      {/* 배경음악 (BGM) 선택 */}
+                      <div className="tts-section">
+                        <div className="section-header-row">
+                          <label className="section-label">🎵 배경음악 (BGM) 선택</label>
+                          <div className="bgm-upload-action">
+                            <input
+                              type="file"
+                              accept="audio/mp3,audio/m4a,audio/wav,audio/*"
+                              ref={bgmFileInputRef}
+                              style={{ display: 'none' }}
+                              onChange={handleBgmUpload}
+                            />
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => bgmFileInputRef.current?.click()}
+                              disabled={uploadingBgm}
+                            >
+                              {uploadingBgm ? '⏳ 업로드 중...' : '📁 내 MP3 추가하기'}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="bgm-grid">
+                          {/* 1. BGM 없음 옵션 */}
+                          <div
+                            className={`bgm-card ${selectedBgm === '' ? 'selected' : ''}`}
+                            onClick={() => setSelectedBgm('')}
+                          >
+                            <span className="bgm-icon">🚫</span>
+                            <div className="bgm-info">
+                              <span className="bgm-name">배경음악 없음</span>
+                              <span className="bgm-tag">원본 소리만 사용</span>
+                            </div>
+                          </div>
+
+                          {/* 2. 등록된 BGM 트랙들 */}
+                          {bgmTracks.map((track) => (
+                            <div
+                              key={track.id}
+                              className={`bgm-card ${selectedBgm === track.filename ? 'selected' : ''}`}
+                              onClick={() => setSelectedBgm(track.filename)}
+                            >
+                              <span className="bgm-icon">🎶</span>
+                              <div className="bgm-info">
+                                <span className="bgm-name" title={track.name}>{track.name}</span>
+                                <span className="bgm-tag">
+                                  {track.type === 'preset' ? '기본 프리셋' : '내 보관함'}
+                                </span>
+                              </div>
+                              <button
+                                className={`btn btn-sm bgm-play-btn ${playingBgmId === track.id ? 'playing' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  togglePlayBgm(track)
+                                }}
+                                title="미리듣기"
+                              >
+                                {playingBgmId === track.id ? '⏹ 정지' : '▶ 듣기'}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
                       {/* 오디오 믹싱 & 속도 조절 */}
-                      <div className="tts-settings-grid">
+                      <div className="tts-settings-grid-3">
                         <div className="setting-box">
                           <label className="setting-label">
-                            🔊 원본 영상 배경음 (BGM) 볼륨: <strong>{Math.round(origVolume * 100)}%</strong>
+                            🔊 원본 소리: <strong>{Math.round(origVolume * 100)}%</strong>
                           </label>
                           <input
                             type="range"
@@ -795,10 +925,36 @@ export default function Editor() {
                           />
                           <div className="range-hints">
                             <span>0% (음소거)</span>
-                            <span>15% (추천 은은한 BGM)</span>
+                            <span>10% (추천)</span>
                             <span>50%</span>
                           </div>
                         </div>
+
+                        {selectedBgm && (
+                          <div className="setting-box">
+                            <label className="setting-label">
+                              🎵 BGM 볼륨: <strong>{Math.round(bgmVolume * 100)}%</strong>
+                            </label>
+                            <input
+                              type="range"
+                              min="0.05"
+                              max="0.5"
+                              step="0.05"
+                              className="range-input"
+                              value={bgmVolume}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value)
+                                setBgmVolume(v)
+                                if (bgmAudioRef.current) bgmAudioRef.current.volume = v * 2
+                              }}
+                            />
+                            <div className="range-hints">
+                              <span>5%</span>
+                              <span>15% (추천 은은함)</span>
+                              <span>50%</span>
+                            </div>
+                          </div>
+                        )}
 
                         <div className="setting-box">
                           <label className="setting-label">⚡ 말하기 속도</label>
@@ -812,9 +968,10 @@ export default function Editor() {
                             <option value="+10%">생동감 있는 추천 (+10%)</option>
                             <option value="+20%">빠른 쇼츠 속도 (+20%)</option>
                           </select>
-                          <p className="setting-hint">유튜브 쇼츠 영상은 +10% ~ +20% 속도를 추천합니다.</p>
+                          <p className="setting-hint">쇼츠는 +10% ~ +20% 속도를 추천합니다.</p>
                         </div>
                       </div>
+
 
                       {/* 더빙 실행 버튼 */}
                       <div className="tts-action-row">

@@ -43,6 +43,7 @@ downloads/
 *.mkv
 *.avi
 *.mov
+!backend/assets/bgm/*
 
 # 환경 변수
 .env
