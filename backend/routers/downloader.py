@@ -1,4 +1,3 @@
-import os
 import asyncio
 import json
 from pathlib import Path
@@ -12,6 +11,20 @@ router = APIRouter(prefix="/api/download", tags=["downloader"])
 # 다운로드 저장 폴더
 DOWNLOAD_DIR = Path.home() / "Downloads" / "BillStudio"
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# 403 에러 우회 공통 옵션
+COMMON_OPTS = {
+    "quiet": True,
+    "no_warnings": True,
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["ios", "android", "web"],
+        }
+    },
+    "http_headers": {
+        "User-Agent": "com.google.ios.youtube/19.29.1 CFNetwork/1568.100.1 Darwin/24.0.0",
+    },
+}
 
 
 class VideoInfoRequest(BaseModel):
@@ -28,8 +41,7 @@ class DownloadRequest(BaseModel):
 async def get_video_info(req: VideoInfoRequest):
     """영상 정보 및 화질 목록 가져오기"""
     ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
+        **COMMON_OPTS,
         "skip_download": True,
     }
     try:
@@ -113,6 +125,7 @@ async def download_video(url: str, format_id: str):
 
         if is_audio:
             ydl_opts = {
+                **COMMON_OPTS,
                 "format": "bestaudio/best",
                 "outtmpl": str(DOWNLOAD_DIR / "%(title)s.%(ext)s"),
                 "postprocessors": [{
@@ -120,15 +133,14 @@ async def download_video(url: str, format_id: str):
                     "preferredcodec": "mp3",
                     "preferredquality": "192",
                 }],
-                "quiet": True,
                 "progress_hooks": [progress_hook],
             }
         else:
             ydl_opts = {
-                "format": f"{format_id}+bestaudio/best[height<={format_id}]/best",
+                **COMMON_OPTS,
+                "format": f"{format_id}+bestaudio[ext=m4a]/best[height<={format_id}]/best",
                 "outtmpl": str(DOWNLOAD_DIR / "%(title)s.%(ext)s"),
                 "merge_output_format": "mp4",
-                "quiet": True,
                 "progress_hooks": [progress_hook],
             }
 
