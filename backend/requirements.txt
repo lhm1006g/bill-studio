@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+python-multipart
+sqlalchemy
+yt-dlp
+ffmpeg-python
+faster-whisper
+httpx
+feedparser
+newspaper3k
+ollama
