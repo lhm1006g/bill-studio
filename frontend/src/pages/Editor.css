@@ -627,3 +627,167 @@
 .success-info code {
   color: #86efac;
 }
+
+/* ── AI 내레이션 더빙 (TTS) 패널 ── */
+.tts-panel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.tts-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.tts-panel-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.tts-controls-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.tts-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.voice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.voice-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.voice-card:hover {
+  border-color: var(--accent);
+  background: rgba(124, 92, 252, 0.05);
+}
+
+.voice-card.selected {
+  border-color: var(--accent);
+  background: rgba(124, 92, 252, 0.14);
+  box-shadow: 0 0 12px rgba(124, 92, 252, 0.25);
+}
+
+.voice-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.voice-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.voice-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: rgba(124, 92, 252, 0.2);
+  color: var(--accent-hover);
+  border-radius: 12px;
+}
+
+.voice-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.tts-settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 680px) {
+  .tts-settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.setting-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.setting-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.range-input {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.range-hints {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.full-width {
+  width: 100%;
+}
+
+.setting-hint {
+  font-size: 11px;
+  color: var(--accent-hover);
+  margin-top: 2px;
+}
+
+.tts-action-row {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0;
+}
+
+.dub-start-btn {
+  padding: 14px 32px;
+  font-size: 15px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.dub-success-box {
+  margin-top: 10px;
+}
+

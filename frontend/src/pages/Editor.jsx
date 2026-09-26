@@ -56,8 +56,19 @@ export default function Editor() {
   const [subError, setSubError] = useState('')
   const [savingSubs, setSavingSubs] = useState(false)
   const [subsSavedNotice, setSubsSavedNotice] = useState(false)
-  const [activeTab, setActiveTab] = useState('subtitle') // 'subtitle' | 'cut'
+  const [activeTab, setActiveTab] = useState('subtitle') // 'subtitle' | 'tts' | 'cut'
   const [converting, setConverting] = useState(false)
+
+  // AI 내레이션 (더빙) 상태
+  const [voices, setVoices] = useState([])
+  const [selectedVoice, setSelectedVoice] = useState('ko-KR-SunHiNeural')
+  const [ttsRate, setTtsRate] = useState('+10%')
+  const [origVolume, setOrigVolume] = useState(0.15)
+  const [dubbing, setDubbing] = useState(false)
+  const [dubResult, setDubResult] = useState(null)
+  const [dubError, setDubError] = useState('')
+  const [previewing, setPreviewing] = useState(false)
+
 
 
   const activeSegmentRef = useRef(null)
@@ -65,16 +76,32 @@ export default function Editor() {
 
   useEffect(() => {
     loadFiles()
+    loadVoices()
   }, [])
+
+  async function loadVoices() {
+    try {
+      const res = await fetch('/api/tts/voices')
+      if (res.ok) {
+        const data = await res.json()
+        setVoices(data.voices || [])
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   useEffect(() => {
     if (currentFile) {
       loadMediaInfo(currentFile)
       loadExistingSubtitles(currentFile)
+      setDubResult(null)
+      setDubError('')
     } else {
       setMediaInfo(null)
       setSubtitles([])
       setSubtitlesLoaded(false)
+      setDubResult(null)
     }
   }, [currentFile])
 
@@ -92,6 +119,7 @@ export default function Editor() {
       setLoadingFiles(false)
     }
   }
+
 
   async function loadMediaInfo(filename) {
     setLoadingInfo(true)
@@ -140,7 +168,75 @@ export default function Editor() {
     }
   }
 
+  // TTS 성우 목소리 미리듣기
+  async function handlePreviewTTS() {
+    const sampleText = subtitles[0]?.text || '안녕하세요! 빌 스튜디오 AI 내레이션 목소리 테스트입니다.'
+    setPreviewing(true)
+    try {
+      const res = await fetch('/api/tts/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: sampleText,
+          voice: selectedVoice,
+          rate: ttsRate,
+        }),
+      })
+      if (!res.ok) throw new Error('미리듣기 생성 실패')
+      const blob = await res.blob()
+      const audioUrl = URL.createObjectURL(blob)
+      const audio = new Audio(audioUrl)
+      audio.play()
+    } catch (e) {
+      alert(e.message)
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
+  // AI 내레이션 더빙 영상 생성
+  async function handleDubVideo() {
+    if (!currentFile) return
+    if (subtitles.length === 0) {
+      alert('더빙할 자막 대본이 없습니다. 먼저 [🎙️ AI 자막] 탭에서 자막을 추출해주세요.')
+      setActiveTab('subtitle')
+      return
+    }
+
+    setDubbing(true)
+    setDubError('')
+    setDubResult(null)
+
+    try {
+      const res = await fetch('/api/tts/dub', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file: currentFile,
+          voice: selectedVoice,
+          rate: ttsRate,
+          original_volume: origVolume,
+          tts_volume: 1.0,
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.detail || '더빙 영상 제작에 실패했습니다.')
+      }
+
+      const data = await res.json()
+      setDubResult(data)
+      loadFiles()
+    } catch (e) {
+      setDubError(e.message)
+    } finally {
+      setDubbing(false)
+    }
+  }
+
   // 기존 저장된 자막 불러오기
+
 
   async function loadExistingSubtitles(filename) {
     setSubError('')
@@ -481,13 +577,19 @@ export default function Editor() {
                 </div>
               </div>
 
-              {/* 하단 탭 메뉴: AI 자막 / 구간 자르기 */}
+              {/* 하단 탭 메뉴: AI 자막 / AI 더빙 / 구간 자르기 */}
               <div className="tab-nav">
                 <button
                   className={`tab-btn ${activeTab === 'subtitle' ? 'active' : ''}`}
                   onClick={() => setActiveTab('subtitle')}
                 >
-                  🎙️ AI 자막 생성 및 편집 {subtitlesLoaded && `(${subtitles.length})`}
+                  🎙️ AI 자막 {subtitlesLoaded && `(${subtitles.length})`}
+                </button>
+                <button
+                  className={`tab-btn ${activeTab === 'tts' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('tts')}
+                >
+                  🗣️ AI 내레이션 더빙 (TTS)
                 </button>
                 <button
                   className={`tab-btn ${activeTab === 'cut' ? 'active' : ''}`}
@@ -496,6 +598,7 @@ export default function Editor() {
                   ✂️ 구간 자르기 (Fast Cut)
                 </button>
               </div>
+
 
               {/* 탭 1: AI 자막 패널 */}
               {activeTab === 'subtitle' && (
@@ -623,8 +726,133 @@ export default function Editor() {
                 </div>
               )}
 
-              {/* 탭 2: 구간 자르기 패널 */}
+              {/* 탭 2: AI 내레이션 더빙 (TTS) 패널 */}
+              {activeTab === 'tts' && (
+                <div className="card tts-panel-card">
+                  <div className="tts-panel-header">
+                    <div>
+                      <h3>🗣️ AI 내레이션 자동 더빙</h3>
+                      <p className="tool-desc">
+                        추출된 자막 대본을 고품질 한국어 AI 성우 목소리로 읽어 원본 영상의 오디오와 믹싱합니다.
+                      </p>
+                    </div>
+                    {subtitles.length > 0 && (
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={handlePreviewTTS}
+                        disabled={previewing}
+                      >
+                        {previewing ? '🔊 음성 생성 중...' : '🎧 목소리 미리듣기'}
+                      </button>
+                    )}
+                  </div>
+
+                  {subtitles.length === 0 ? (
+                    <div className="empty-sub-state">
+                      <span className="empty-sub-icon">📝</span>
+                      <h4>더빙할 자막 대본이 없습니다</h4>
+                      <p>먼저 <strong>[🎙️ AI 자막]</strong> 탭에서 자막을 추출하거나 생성해주세요.</p>
+                      <button className="btn btn-primary" onClick={() => setActiveTab('subtitle')}>
+                        🎙️ AI 자막 탭으로 이동
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="tts-controls-wrapper">
+                      {/* 성우 선택 */}
+                      <div className="tts-section">
+                        <label className="section-label">👩 성우 목소리 선택</label>
+                        <div className="voice-grid">
+                          {voices.map((v) => (
+                            <div
+                              key={v.id}
+                              className={`voice-card ${selectedVoice === v.id ? 'selected' : ''}`}
+                              onClick={() => setSelectedVoice(v.id)}
+                            >
+                              <div className="voice-card-header">
+                                <span className="voice-name">{v.name}</span>
+                                <span className="voice-tag">{v.gender === 'Female' ? '여성' : '남성'}</span>
+                              </div>
+                              <p className="voice-desc">{v.desc}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* 오디오 믹싱 & 속도 조절 */}
+                      <div className="tts-settings-grid">
+                        <div className="setting-box">
+                          <label className="setting-label">
+                            🔊 원본 영상 배경음 (BGM) 볼륨: <strong>{Math.round(origVolume * 100)}%</strong>
+                          </label>
+                          <input
+                            type="range"
+                            min="0"
+                            max="0.5"
+                            step="0.05"
+                            className="range-input"
+                            value={origVolume}
+                            onChange={(e) => setOrigVolume(parseFloat(e.target.value))}
+                          />
+                          <div className="range-hints">
+                            <span>0% (음소거)</span>
+                            <span>15% (추천 은은한 BGM)</span>
+                            <span>50%</span>
+                          </div>
+                        </div>
+
+                        <div className="setting-box">
+                          <label className="setting-label">⚡ 말하기 속도</label>
+                          <select
+                            className="input select-input full-width"
+                            value={ttsRate}
+                            onChange={(e) => setTtsRate(e.target.value)}
+                          >
+                            <option value="-10%">차분하게 느림 (-10%)</option>
+                            <option value="+0%">보통 표준 속도 (+0%)</option>
+                            <option value="+10%">생동감 있는 추천 (+10%)</option>
+                            <option value="+20%">빠른 쇼츠 속도 (+20%)</option>
+                          </select>
+                          <p className="setting-hint">유튜브 쇼츠 영상은 +10% ~ +20% 속도를 추천합니다.</p>
+                        </div>
+                      </div>
+
+                      {/* 더빙 실행 버튼 */}
+                      <div className="tts-action-row">
+                        <button
+                          className="btn btn-accent-glow dub-start-btn"
+                          onClick={handleDubVideo}
+                          disabled={dubbing}
+                        >
+                          {dubbing ? '⏳ AI 음성 생성 및 오디오 믹싱 중...' : '✨ AI 내레이션 더빙 영상 제작'}
+                        </button>
+                      </div>
+
+                      {dubError && <p className="error-msg">❌ {dubError}</p>}
+
+                      {/* 제작 완료 카드 */}
+                      {dubResult && (
+                        <div className="cut-success-box dub-success-box">
+                          <div className="success-icon">🎉</div>
+                          <div className="success-info">
+                            <strong>AI 내레이션 더빙 영상 제작 완료!</strong>
+                            <p>새 영상: <code>{dubResult.output_file}</code> ({formatSize(dubResult.output_size)})</p>
+                          </div>
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={() => handleSelectFile(dubResult.output_file)}
+                          >
+                            🎬 더빙된 영상 바로 열기
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 탭 3: 구간 자르기 패널 */}
               {activeTab === 'cut' && (
+
                 <div className="card tool-card">
                   <div className="tool-title">
                     <h3>✂️ 구간 자르기 (Fast Cut)</h3>

@@ -2,7 +2,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from routers import downloader, editor, subtitle
+from routers import downloader, editor, subtitle, tts
 
 app = FastAPI(title="Bill Studio API", version="1.0.0")
 
@@ -24,6 +24,8 @@ app.mount("/api/media", StaticFiles(directory=DOWNLOAD_DIR), name="media")
 app.include_router(downloader.router)
 app.include_router(editor.router)
 app.include_router(subtitle.router)
+app.include_router(tts.router)
+
 
 
 
