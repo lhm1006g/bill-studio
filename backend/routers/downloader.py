@@ -187,7 +187,7 @@ async def get_history():
     files = []
     if DOWNLOAD_DIR.exists():
         for f in DOWNLOAD_DIR.iterdir():
-            if f.is_file():
+            if f.is_file() and not f.name.startswith("."):
                 files.append({
                     "name": f.name,
                     "size": f.stat().st_size,
@@ -195,3 +195,15 @@ async def get_history():
                 })
     files.sort(key=lambda x: x["modified"], reverse=True)
     return {"files": files, "save_dir": str(DOWNLOAD_DIR)}
+
+
+@router.post("/open-folder")
+async def open_download_folder():
+    """Mac Finder에서 저장 폴더 열기"""
+    import subprocess
+    try:
+        subprocess.run(["open", str(DOWNLOAD_DIR)], check=True)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

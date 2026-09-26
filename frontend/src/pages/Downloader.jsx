@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './Downloader.css'
 
 function formatSize(bytes) {
@@ -13,8 +13,14 @@ function formatDuration(sec) {
   const h = Math.floor(sec / 3600)
   const m = Math.floor((sec % 3600) / 60)
   const s = sec % 60
-  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
-  return `${m}:${String(s).padStart(2,'0')}`
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function formatDate(timestamp) {
+  if (!timestamp) return ''
+  const d = new Date(timestamp * 1000)
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 export default function Downloader() {
@@ -26,7 +32,33 @@ export default function Downloader() {
   const [progress, setProgress] = useState({ percent: '0%', speed: '', eta: '' })
   const [saveDir, setSaveDir] = useState('')
   const [error, setError] = useState('')
+  const [history, setHistory] = useState([])
   const esRef = useRef(null)
+
+  useEffect(() => {
+    loadHistory()
+  }, [])
+
+  async function loadHistory() {
+    try {
+      const res = await fetch('/api/download/history')
+      if (res.ok) {
+        const data = await res.json()
+        setHistory(data.files || [])
+        if (data.save_dir) setSaveDir(data.save_dir)
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleOpenFolder() {
+    try {
+      await fetch('/api/download/open-folder', { method: 'POST' })
+    } catch (e) {
+      alert('폴더 열기 실패: ' + e.message)
+    }
+  }
 
   async function handleSearch() {
     if (!url.trim()) return
@@ -70,6 +102,7 @@ export default function Downloader() {
       } else if (data.status === 'done') {
         setDlStatus('done')
         setSaveDir(data.save_dir)
+        loadHistory()
         es.close()
       } else if (data.status === 'error') {
         setDlStatus('error')
@@ -83,8 +116,6 @@ export default function Downloader() {
       es.close()
     }
   }
-
-  const percentNum = parseInt(progress.percent) || 0
 
   return (
     <div className="downloader">
@@ -171,11 +202,46 @@ export default function Downloader() {
           <div className="done-icon">✅</div>
           <h3>다운로드 완료!</h3>
           <p className="save-dir">📁 저장 위치: <code>{saveDir}</code></p>
-          <button className="btn btn-secondary" onClick={() => { setDlStatus(null); setInfo(null); setUrl('') }}>
-            🔄 새로 다운로드
-          </button>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+            <button className="btn btn-primary" onClick={handleOpenFolder}>
+              📂 Finder에서 열기
+            </button>
+            <button className="btn btn-secondary" onClick={() => { setDlStatus(null); setInfo(null); setUrl('') }}>
+              🔄 새로 다운로드
+            </button>
+          </div>
         </div>
       )}
+
+      {/* 최근 다운로드 목록 */}
+      <div className="card history-card">
+        <div className="history-header">
+          <h3>📂 다운로드 파일 목록 ({history.length}개)</h3>
+          <div className="history-actions">
+            <button className="btn btn-secondary btn-sm" onClick={handleOpenFolder}>
+              📁 폴더 열기
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={loadHistory}>
+              🔄 새로고침
+            </button>
+          </div>
+        </div>
+
+        {history.length === 0 ? (
+          <p className="empty-history">아직 다운로드된 파일이 없습니다.</p>
+        ) : (
+          <div className="history-list">
+            {history.map((item, idx) => (
+              <div key={idx} className="history-item">
+                <span className="file-icon">🎬</span>
+                <span className="file-name" title={item.name}>{item.name}</span>
+                <span className="file-size">{formatSize(item.size)}</span>
+                <span className="file-date">{formatDate(item.modified)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -84,9 +84,9 @@
 ## 🚀 개발 단계 (Phase)
 
 - [x] **Phase 1** - 기반 구조 세팅 (Vite + FastAPI + SQLite + 사이드바 UI) ✅
-- [ ] **Phase 2** - 유튜브 다운로드 기능
-- [ ] **Phase 3** - AI 자막 생성/편집 기능
-- [ ] **Phase 4** - 동영상 편집 기능
+- [x] **Phase 2** - 유튜브 다운로드 기능 (yt-dlp 고화질 1080p~4K + SSE 실시간 진행률 + 파일목록) ✅
+- [ ] **Phase 3** - AI 자막 생성/편집 기능 (faster-whisper)
+- [ ] **Phase 4** - 동영상 편집 기능 (ffmpeg-python)
 - [ ] **Phase 5** - 일정 관리 기능
 - [ ] **Phase 6** - 뉴스 리서치 기능
 - [ ] **Phase 7** - AI 어시스턴트 채팅 기능
@@ -122,12 +122,17 @@
 - [x] GEMINI.md 컨텍스트 파일 생성
 - [x] GitHub 레포 연결 (https://github.com/lhm1006g/bill-studio)
 - [x] Phase 1 완료 - Vite+React 프론트엔드 생성, FastAPI 백엔드 기반, 사이드바+라우팅 UI
-  - Node.js 20 업그레이드 필요 (`export PATH=/opt/homebrew/opt/node@20/bin:$PATH`)
-  - 프론트 실행: `cd frontend && npm run dev`
-  - 백엔드 실행: `cd backend && uvicorn main:app --reload --port 8000`
+- [x] Phase 2 완료 - 유튜브 다운로드 기능
+  - yt-dlp 403 에러 우회 및 순수 포맷 추출 지원
+  - 1080p ~ 4K 고화질 비디오+오디오 결합 다운로드 (ffmpeg)
+  - SSE(Server-Sent Events) 실시간 다운로드 진행률, 다운로드 속도, 남은 시간
+  - MP3 음원 추출 지원
+  - Mac Finder 폴더 열기 연동 및 최근 다운로드 목록 표시
+  - 다운로드 파일 저장 위치: `~/Downloads/BillStudio`
 
 ### 다음 할 일
-- [ ] Phase 2 시작: 유튜브 다운로드 기능 (yt-dlp)
+- [ ] Phase 3: AI 자막 생성/편집 기능 (`faster-whisper`)
+
 
 ---
 
