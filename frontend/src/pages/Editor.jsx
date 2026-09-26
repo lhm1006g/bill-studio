@@ -56,6 +56,7 @@ export default function Editor() {
   const [subError, setSubError] = useState('')
   const [savingSubs, setSavingSubs] = useState(false)
   const [subsSavedNotice, setSubsSavedNotice] = useState(false)
+  const [isSubsDirty, setIsSubsDirty] = useState(false)
   const [activeTab, setActiveTab] = useState('subtitle') // 'subtitle' | 'tts' | 'cut'
   const [converting, setConverting] = useState(false)
 
@@ -369,8 +370,12 @@ export default function Editor() {
         }),
       })
       if (res.ok) {
+        setIsSubsDirty(false)
         setSubsSavedNotice(true)
         setTimeout(() => setSubsSavedNotice(false), 2500)
+      } else {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || '자막 저장에 실패했습니다.')
       }
     } catch (e) {
       alert('자막 저장 실패: ' + e.message)
@@ -383,6 +388,45 @@ export default function Editor() {
     const updated = [...subtitles]
     updated[idx] = { ...updated[idx], text: newText }
     setSubtitles(updated)
+    setIsSubsDirty(true)
+  }
+
+  function handleDeleteSegment(idx) {
+    const seg = subtitles[idx]
+    const preview = seg?.text?.slice(0, 15) || '이 자막'
+    if (!window.confirm(`"${preview}..." 자막을 삭제하시겠습니까?`)) return
+    const updated = subtitles.filter((_, i) => i !== idx)
+    setSubtitles(updated)
+    setIsSubsDirty(true)
+  }
+
+  function handleAddSegment(idx) {
+    const prev = idx !== undefined && idx >= 0 ? subtitles[idx] : subtitles[subtitles.length - 1]
+    const curTime = videoRef.current ? Number(videoRef.current.currentTime.toFixed(1)) : 0
+    const nextStart = prev ? Number((prev.end + 0.1).toFixed(1)) : curTime
+    const nextEnd = Number((nextStart + 3.0).toFixed(1))
+    const newSeg = {
+      id: Date.now(),
+      start: nextStart,
+      end: nextEnd,
+      text: '새 자막을 입력하세요'
+    }
+    const updated = [...subtitles]
+    if (idx !== undefined && idx >= 0) {
+      updated.splice(idx + 1, 0, newSeg)
+    } else {
+      updated.push(newSeg)
+    }
+    setSubtitles(updated)
+    setIsSubsDirty(true)
+  }
+
+  function handleTimeStep(idx, field, delta) {
+    const updated = [...subtitles]
+    const val = Number(Math.max(0, updated[idx][field] + delta).toFixed(1))
+    updated[idx] = { ...updated[idx], [field]: val }
+    setSubtitles(updated)
+    setIsSubsDirty(true)
   }
 
   function handleSeekTo(sec) {
@@ -705,17 +749,17 @@ export default function Editor() {
                         <div className="sub-loaded-actions">
                           <button
                             className="btn btn-secondary btn-sm"
-                            onClick={handleExtractSubtitles}
-                            disabled={extractingSubs}
+                            onClick={() => handleAddSegment(subtitles.length - 1)}
+                            title="목록 맨 끝에 새 자막 행 추가"
                           >
-                            {extractingSubs ? '⏳ 재추출 중...' : '🔄 다시 추출'}
+                            ➕ 자막 추가
                           </button>
                           <button
-                            className="btn btn-primary btn-sm"
+                            className={`btn btn-sm ${isSubsDirty ? 'btn-primary pulse-save-btn' : 'btn-secondary'}`}
                             onClick={handleSaveSubtitles}
                             disabled={savingSubs}
                           >
-                            {savingSubs ? '💾 저장 중...' : '💾 자막 저장'}
+                            {savingSubs ? '💾 저장 중...' : isSubsDirty ? '💾 자막 저장 (저장 필요)' : '💾 자막 저장됨'}
                           </button>
                           <a
                             className="btn btn-secondary btn-sm"
@@ -724,6 +768,14 @@ export default function Editor() {
                           >
                             📥 .SRT 다운로드
                           </a>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={handleExtractSubtitles}
+                            disabled={extractingSubs}
+                            title="영상 음성을 다시 Whisper AI로 분석"
+                          >
+                            {extractingSubs ? '⏳ 재추출 중...' : '🔄 다시 추출'}
+                          </button>
                         </div>
                       )}
                     </div>
@@ -732,6 +784,12 @@ export default function Editor() {
                   {subsSavedNotice && (
                     <div className="notice-banner success">
                       ✅ 자막 수정 내용이 성공적으로 저장되었습니다!
+                    </div>
+                  )}
+
+                  {isSubsDirty && !subsSavedNotice && (
+                    <div className="notice-banner warning">
+                      ✏️ 자막에 수정된 내용이 있습니다. 편집을 마친 후 <strong>[💾 자막 저장]</strong> 버튼을 눌러주세요.
                     </div>
                   )}
 
@@ -757,27 +815,92 @@ export default function Editor() {
                               ref={isActive ? activeSegmentRef : null}
                               className={`script-item ${isActive ? 'active' : ''}`}
                             >
-                              <button
-                                className="script-time-btn"
-                                onClick={() => handleSeekTo(seg.start)}
-                                title="이 시간대로 영상 재생 이동"
-                              >
-                                ⏱ {formatSeconds(seg.start)}
-                              </button>
+                              <div className="script-time-controls">
+                                <button
+                                  className="script-time-btn"
+                                  onClick={() => handleSeekTo(seg.start)}
+                                  title="클릭 시 이 시간대로 영상 재생 이동"
+                                >
+                                  ▶ {formatSeconds(seg.start)}
+                                </button>
+                                <div className="time-micro-adjust">
+                                  <button
+                                    className="time-step-btn"
+                                    onClick={() => handleTimeStep(idx, 'start', -0.2)}
+                                    title="시작 0.2초 앞당기기"
+                                  >
+                                    -0.2
+                                  </button>
+                                  <button
+                                    className="time-step-btn"
+                                    onClick={() => handleTimeStep(idx, 'start', 0.2)}
+                                    title="시작 0.2초 늦추기"
+                                  >
+                                    +0.2
+                                  </button>
+                                </div>
+                              </div>
 
-                              <input
-                                className="script-text-input"
-                                value={seg.text}
-                                onChange={(e) => handleSegmentTextChange(idx, e.target.value)}
-                                placeholder="자막 내용 입력..."
-                              />
+                              <div className="script-input-wrapper">
+                                <textarea
+                                  className="script-text-input"
+                                  rows={1}
+                                  value={seg.text}
+                                  onChange={(e) => handleSegmentTextChange(idx, e.target.value)}
+                                  placeholder="자막 내용 입력..."
+                                />
+                              </div>
 
-                              <span className="script-dur">
-                                {formatSeconds(seg.end)}
-                              </span>
+                              <div className="script-end-controls">
+                                <span className="script-dur" title="종료 시간">
+                                  ~ {formatSeconds(seg.end)}
+                                </span>
+                                <div className="time-micro-adjust">
+                                  <button
+                                    className="time-step-btn"
+                                    onClick={() => handleTimeStep(idx, 'end', -0.2)}
+                                    title="종료 0.2초 앞당기기"
+                                  >
+                                    -0.2
+                                  </button>
+                                  <button
+                                    className="time-step-btn"
+                                    onClick={() => handleTimeStep(idx, 'end', 0.2)}
+                                    title="종료 0.2초 늦추기"
+                                  >
+                                    +0.2
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="script-actions">
+                                <button
+                                  className="script-action-btn add-btn"
+                                  onClick={() => handleAddSegment(idx)}
+                                  title="이 자막 아래에 새 자막 추가"
+                                >
+                                  ➕
+                                </button>
+                                <button
+                                  className="script-action-btn del-btn"
+                                  onClick={() => handleDeleteSegment(idx)}
+                                  title="이 자막 삭제"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
                             </div>
                           )
                         })}
+                      </div>
+
+                      <div className="script-list-footer">
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => handleAddSegment(subtitles.length - 1)}
+                        >
+                          ➕ 목록 끝에 새 자막 행 추가
+                        </button>
                       </div>
                     </div>
                   )}
