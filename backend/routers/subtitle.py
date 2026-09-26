@@ -42,6 +42,41 @@ def generate_srt(segments: list) -> str:
     return "\n".join(srt_lines)
 
 
+import urllib.request
+import urllib.parse
+
+def sync_translate_text(text: str, target: str = "ko", source: str = "auto") -> str:
+    if not text or not text.strip():
+        return ""
+    try:
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={source}&tl={target}&dt=t&q=" + urllib.parse.quote(text)
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return "".join([part[0] for part in data[0] if part[0]]).strip()
+    except Exception as e:
+        print(f"Translation error: {e}")
+        return text
+
+
+async def async_translate_segments(segments: list[dict], target: str = "ko") -> list[dict]:
+    """세그먼트 리스트의 텍스트를 비동기로 병렬 번역"""
+    translated = []
+    chunk_size = 5
+    for i in range(0, len(segments), chunk_size):
+        chunk = segments[i:i + chunk_size]
+        tasks = [asyncio.to_thread(sync_translate_text, seg["text"], target) for seg in chunk]
+        results = await asyncio.gather(*tasks)
+        for seg, trans_text in zip(chunk, results):
+            item = dict(seg)
+            item["text"] = trans_text
+            translated.append(item)
+    return translated
+
+
 class SubtitleSegment(BaseModel):
     id: int
     start: float
@@ -52,12 +87,19 @@ class SubtitleSegment(BaseModel):
 class ExtractRequest(BaseModel):
     file: str
     model_size: str = "base"  # tiny, base, small
-    language: str | None = "ko"
+    language: str | None = "auto"
+    translate_to_ko: bool = False
 
 
 class SaveRequest(BaseModel):
     file: str
     segments: list[SubtitleSegment]
+
+
+class TranslateRequest(BaseModel):
+    file: str
+    target_lang: str = "ko"
+    segments: list[SubtitleSegment] | None = None
 
 
 @router.get("/get")
@@ -113,6 +155,12 @@ async def extract_subtitles(req: ExtractRequest):
 
         segments, info = await loop.run_in_executor(None, run_transcription)
 
+        # 한국어 자동 번역 요청이 있는 경우 (원본 언어가 한국어가 아니거나 강제 요청 시)
+        output_lang = info.language
+        if req.translate_to_ko:
+            segments = await async_translate_segments(segments, target="ko")
+            output_lang = "ko"
+
         # 추출 결과를 JSON 및 SRT 파일로 자동 저장
         json_path = DOWNLOAD_DIR / f"{file_path.stem}.subtitles.json"
         srt_path = DOWNLOAD_DIR / f"{file_path.stem}.srt"
@@ -120,7 +168,8 @@ async def extract_subtitles(req: ExtractRequest):
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump({
                 "file": req.file,
-                "language": info.language,
+                "language": output_lang,
+                "orig_language": info.language,
                 "segments": segments,
             }, f, ensure_ascii=False, indent=2)
 
@@ -131,12 +180,63 @@ async def extract_subtitles(req: ExtractRequest):
         return {
             "status": "success",
             "file": req.file,
-            "language": info.language,
+            "language": output_lang,
+            "orig_language": info.language,
             "segments": segments,
             "count": len(segments),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"자막 추출 실패: {str(e)}")
+
+
+@router.post("/translate")
+async def translate_subtitles_endpoint(req: TranslateRequest):
+    """기존 자막을 한국어(또는 지정된 언어)로 즉시 번역"""
+    file_path = find_download_file(req.file)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="영상 파일을 찾을 수 없습니다.")
+
+    target_segments = []
+    if req.segments and len(req.segments) > 0:
+        target_segments = [s.model_dump() for s in req.segments]
+    else:
+        json_path = DOWNLOAD_DIR / f"{file_path.stem}.subtitles.json"
+        if not json_path.exists():
+            raise HTTPException(status_code=400, detail="번역할 자막이 없습니다. 먼저 자막을 추출해주세요.")
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            target_segments = data.get("segments", [])
+
+    if not target_segments:
+        raise HTTPException(status_code=400, detail="번역할 자막 문장이 없습니다.")
+
+    try:
+        translated_segments = await async_translate_segments(target_segments, target=req.target_lang)
+
+        # 번역 결과를 JSON 및 SRT 파일에 즉시 저장
+        json_path = DOWNLOAD_DIR / f"{file_path.stem}.subtitles.json"
+        srt_path = DOWNLOAD_DIR / f"{file_path.stem}.srt"
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "file": file_path.name,
+                "language": req.target_lang,
+                "segments": translated_segments,
+            }, f, ensure_ascii=False, indent=2)
+
+        srt_content = generate_srt(translated_segments)
+        with open(srt_path, "w", encoding="utf-8") as f:
+            f.write(srt_content)
+
+        return {
+            "status": "success",
+            "file": file_path.name,
+            "language": req.target_lang,
+            "segments": translated_segments,
+            "count": len(translated_segments),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"자막 번역 실패: {str(e)}")
 
 
 @router.post("/save")

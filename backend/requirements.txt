@@ -9,3 +9,6 @@ httpx
 feedparser
 newspaper3k
 ollama
+edge-tts
+deep-translator
+

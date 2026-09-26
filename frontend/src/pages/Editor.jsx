@@ -52,6 +52,9 @@ export default function Editor() {
   const [subtitlesLoaded, setSubtitlesLoaded] = useState(false)
   const [extractingSubs, setExtractingSubs] = useState(false)
   const [subsModel, setSubsModel] = useState('base')
+  const [subsLang, setSubsLang] = useState('auto')
+  const [translateToKo, setTranslateToKo] = useState(false)
+  const [translatingSubs, setTranslatingSubs] = useState(false)
   const [showSubtitles, setShowSubtitles] = useState(true)
   const [subError, setSubError] = useState('')
   const [savingSubs, setSavingSubs] = useState(false)
@@ -337,22 +340,57 @@ export default function Editor() {
         body: JSON.stringify({
           file: currentFile,
           model_size: subsModel,
-          language: 'ko',
+          language: subsLang,
+          translate_to_ko: translateToKo,
         }),
       })
 
       if (!res.ok) {
-        const err = await res.json()
+        const err = await res.json().catch(() => ({}))
         throw new Error(err.detail || '자막 추출에 실패했습니다.')
       }
 
       const data = await res.json()
       setSubtitles(data.segments || [])
       setSubtitlesLoaded(true)
+      setIsSubsDirty(false)
     } catch (e) {
       setSubError(e.message)
     } finally {
       setExtractingSubs(false)
+    }
+  }
+
+  // 기존 자막을 한국어로 즉시 일괄 번역
+  async function handleTranslateToKo() {
+    if (!currentFile || subtitles.length === 0) return
+    setTranslatingSubs(true)
+    setSubError('')
+    try {
+      const res = await fetch('/api/subtitle/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file: currentFile,
+          target_lang: 'ko',
+          segments: subtitles,
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || '자막 번역에 실패했습니다.')
+      }
+
+      const data = await res.json()
+      setSubtitles(data.segments || [])
+      setIsSubsDirty(false)
+      setSubsSavedNotice(true)
+      setTimeout(() => setSubsSavedNotice(false), 3000)
+    } catch (e) {
+      setSubError(e.message)
+    } finally {
+      setTranslatingSubs(false)
     }
   }
 
@@ -724,6 +762,19 @@ export default function Editor() {
                     <div className="sub-header-controls">
                       {!subtitlesLoaded && (
                         <div className="model-selector-row">
+                          <label>음성 언어:</label>
+                          <select
+                            className="input select-input"
+                            value={subsLang}
+                            onChange={(e) => setSubsLang(e.target.value)}
+                            disabled={extractingSubs}
+                          >
+                            <option value="auto">🌐 자동 감지 (추천)</option>
+                            <option value="en">🇺🇸 영어 (English)</option>
+                            <option value="ko">🇰🇷 한국어</option>
+                            <option value="ja">🇯🇵 일본어</option>
+                          </select>
+
                           <label>모델:</label>
                           <select
                             className="input select-input"
@@ -735,6 +786,17 @@ export default function Editor() {
                             <option value="base">표준 추천 (base)</option>
                             <option value="small">고정밀 (small)</option>
                           </select>
+
+                          <label className="checkbox-label" title="영어 등 외국어 음성을 한국어 자막으로 자동 변환">
+                            <input
+                              type="checkbox"
+                              checked={translateToKo}
+                              onChange={(e) => setTranslateToKo(e.target.checked)}
+                              disabled={extractingSubs}
+                            />
+                            <span>🇰🇷 한국어로 번역</span>
+                          </label>
+
                           <button
                             className="btn btn-primary"
                             onClick={handleExtractSubtitles}
@@ -747,6 +809,14 @@ export default function Editor() {
 
                       {subtitlesLoaded && (
                         <div className="sub-loaded-actions">
+                          <button
+                            className="btn btn-primary btn-sm translate-btn"
+                            onClick={handleTranslateToKo}
+                            disabled={translatingSubs || savingSubs}
+                            title="전체 자막 텍스트를 자연스러운 한국어로 즉시 번역합니다"
+                          >
+                            {translatingSubs ? '⏳ 한국어로 번역 중...' : '🌐 한국어로 일괄 번역'}
+                          </button>
                           <button
                             className="btn btn-secondary btn-sm"
                             onClick={() => handleAddSegment(subtitles.length - 1)}
