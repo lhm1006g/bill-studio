@@ -1,6 +1,8 @@
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import downloader
+from fastapi.staticfiles import StaticFiles
+from routers import downloader, editor
 
 app = FastAPI(title="Bill Studio API", version="1.0.0")
 
@@ -13,8 +15,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 미디어 파일 정적 서빙 (/api/media/파일명)
+DOWNLOAD_DIR = Path(__file__).resolve().parent.parent / "downloads"
+DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/api/media", StaticFiles(directory=DOWNLOAD_DIR), name="media")
+
 # 라우터 등록
 app.include_router(downloader.router)
+app.include_router(editor.router)
+
 
 
 @app.get("/")

@@ -129,6 +129,13 @@
   - MP3 음원 추출 지원
   - Mac Finder 폴더 열기 연동 및 최근 다운로드 목록 표시
   - 다운로드 파일 저장 위치: 프로젝트 하위 `downloads/` (`/Users/bill/projects/my/bill_studio/downloads`)
+  - 다운로드 목록 클릭 시 동영상 편집기(`/editor?file=...`) 직행 연동
+- [x] Phase 4 (부분 선행 완료) - 동영상 편집기 기본 기능
+  - FastAPI `/api/media` 정적 비디오 스트리밍 서빙
+  - `ffprobe` 기반 영상 정밀 메타데이터(해상도, 코덱, FPS, 길이, 파일크기) 추출
+  - 브라우저 비디오 플레이어 연동 및 재생 위치 기반 시작/종료점 선택
+  - `ffmpeg` 기반 초고속 무손실 구간 자르기(`-c copy` / 인코딩 fallback) 기능
+
 
 
 ### 다음 할 일

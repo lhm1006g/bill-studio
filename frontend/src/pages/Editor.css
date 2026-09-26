@@ -1,0 +1,325 @@
+.editor-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 1000px;
+}
+
+.editor-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* ── 파일 선택 화면 ── */
+.file-picker-card {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.picker-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.picker-header p {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.picker-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.picker-item:hover {
+  border-color: var(--accent);
+  background: rgba(124, 92, 252, 0.08);
+  transform: translateX(4px);
+}
+
+.picker-item-icon {
+  font-size: 22px;
+}
+
+.picker-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.picker-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.picker-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ── 작업실 워크스페이스 ── */
+.editor-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── 비디오 플레이어 카드 ── */
+.player-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.media-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.current-filename {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.media-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.badge-resolution {
+  border-color: rgba(124, 92, 252, 0.4);
+  color: var(--accent-hover);
+  background: rgba(124, 92, 252, 0.1);
+}
+
+.badge-duration {
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.badge-codec {
+  color: var(--text-secondary);
+}
+
+.badge-size {
+  color: var(--text-muted);
+}
+
+.video-wrapper {
+  width: 100%;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  max-height: 520px;
+}
+
+.video-player {
+  max-width: 100%;
+  max-height: 520px;
+  width: auto;
+  height: auto;
+  outline: none;
+}
+
+.playback-status {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 0 4px;
+}
+
+.playback-status strong {
+  color: var(--text-primary);
+}
+
+/* ── 편집 도구 패널 ── */
+.editor-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.tool-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tool-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tool-title h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tool-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.cut-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .cut-controls {
+    grid-template-columns: 1fr;
+  }
+}
+
+.time-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.time-input-group label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.time-row {
+  display: flex;
+  gap: 8px;
+}
+
+.time-input {
+  width: 110px;
+  font-size: 14px;
+}
+
+.time-display {
+  font-size: 12px;
+  color: var(--accent-hover);
+  font-family: monospace;
+}
+
+.cut-summary {
+  font-size: 14px;
+  padding: 10px 14px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+
+.cut-summary strong {
+  color: var(--accent-hover);
+}
+
+.cut-filename-row {
+  display: flex;
+  gap: 12px;
+}
+
+.cut-filename-row input {
+  flex: 1;
+}
+
+.cut-success-box {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: var(--radius-sm);
+}
+
+.success-icon {
+  font-size: 24px;
+}
+
+.success-info {
+  flex: 1;
+}
+
+.success-info strong {
+  color: #4ade80;
+  font-size: 14px;
+}
+
+.success-info p {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.success-info code {
+  color: #86efac;
+}
+
+/* ── AI 자막 연계 카드 ── */
+.pipeline-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(135deg, rgba(124, 92, 252, 0.1), rgba(59, 130, 246, 0.08));
+  border: 1px solid rgba(124, 92, 252, 0.25);
+}
+
+.btn-accent-glow {
+  background: linear-gradient(135deg, var(--accent), #4f46e5);
+  color: white;
+  padding: 12px 24px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 14px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 0 15px rgba(124, 92, 252, 0.35);
+  transition: all 0.2s ease;
+}
+
+.btn-accent-glow:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 22px rgba(124, 92, 252, 0.55);
+}

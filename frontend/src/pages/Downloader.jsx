@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import './Downloader.css'
+
 
 function formatSize(bytes) {
   if (!bytes) return '알 수 없음'
@@ -24,6 +26,7 @@ function formatDate(timestamp) {
 }
 
 export default function Downloader() {
+  const navigate = useNavigate()
   const [url, setUrl] = useState('')
   const [info, setInfo] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -34,6 +37,7 @@ export default function Downloader() {
   const [error, setError] = useState('')
   const [history, setHistory] = useState([])
   const esRef = useRef(null)
+
 
   useEffect(() => {
     loadHistory()
@@ -202,8 +206,11 @@ export default function Downloader() {
           <div className="done-icon">✅</div>
           <h3>다운로드 완료!</h3>
           <p className="save-dir">📁 저장 위치: <code>{saveDir}</code></p>
-          <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
-            <button className="btn btn-primary" onClick={handleOpenFolder}>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button className="btn btn-primary" onClick={() => history[0] && navigate(`/editor?file=${encodeURIComponent(history[0].name)}`)}>
+              ✂️ 바로 편집기로 열기
+            </button>
+            <button className="btn btn-secondary" onClick={handleOpenFolder}>
               📂 Finder에서 열기
             </button>
             <button className="btn btn-secondary" onClick={() => { setDlStatus(null); setInfo(null); setUrl('') }}>
@@ -232,16 +239,31 @@ export default function Downloader() {
         ) : (
           <div className="history-list">
             {history.map((item, idx) => (
-              <div key={idx} className="history-item">
+              <div
+                key={idx}
+                className="history-item clickable"
+                onClick={() => navigate(`/editor?file=${encodeURIComponent(item.name)}`)}
+                title="클릭하여 동영상 편집기에서 열기"
+              >
                 <span className="file-icon">🎬</span>
-                <span className="file-name" title={item.name}>{item.name}</span>
+                <span className="file-name">{item.name}</span>
                 <span className="file-size">{formatSize(item.size)}</span>
                 <span className="file-date">{formatDate(item.modified)}</span>
+                <button
+                  className="btn btn-primary btn-sm edit-shortcut-btn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigate(`/editor?file=${encodeURIComponent(item.name)}`)
+                  }}
+                >
+                  ✂️ 편집
+                </button>
               </div>
             ))}
           </div>
         )}
       </div>
+
     </div>
   )
 }

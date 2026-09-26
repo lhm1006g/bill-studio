@@ -201,9 +201,27 @@
   transition: border-color 0.15s;
 }
 
-.history-item:hover {
-  border-color: var(--accent);
+.history-item.clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
+
+.history-item.clickable:hover {
+  border-color: var(--accent);
+  background: rgba(124, 92, 252, 0.08);
+  transform: translateX(4px);
+}
+
+.edit-shortcut-btn {
+  opacity: 0.85;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.history-item:hover .edit-shortcut-btn {
+  opacity: 1;
+  transform: scale(1.05);
+}
+
 
 .file-icon {
   font-size: 16px;
