@@ -271,6 +271,7 @@
 }
 
 .caption-pos-selector,
+.caption-linger-selector,
 .sync-shift-group {
   display: flex;
   align-items: center;

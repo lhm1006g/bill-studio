@@ -58,6 +58,7 @@ export default function Editor() {
   const [showSubtitles, setShowSubtitles] = useState(true)
   const [showScreenOverlay, setShowScreenOverlay] = useState(true)
   const [captionPos, setCaptionPos] = useState('bottom') // 'bottom' | 'middle' | 'top'
+  const [subLinger, setSubLinger] = useState(0.8) // 자막 표시 여운 시간 (초)
   const [subError, setSubError] = useState('')
   const [savingSubs, setSavingSubs] = useState(false)
   const [subsSavedNotice, setSubsSavedNotice] = useState(false)
@@ -546,6 +547,28 @@ export default function Editor() {
     setIsSubsDirty(true)
   }
 
+  // 짧은 자막 지속 시간을 최소 1.8초로 일괄 넉넉하게 연장
+  function handleExtendShortSubtitles(minDuration = 1.8) {
+    if (subtitles.length === 0) return
+    let count = 0
+    const updated = subtitles.map((seg, idx) => {
+      const curDur = seg.end - seg.start
+      if (curDur < minDuration) {
+        const next = subtitles[idx + 1]
+        const maxEnd = next ? Math.max(seg.end, next.start - 0.1) : seg.start + minDuration
+        const newEnd = Number(Math.min(seg.start + minDuration, maxEnd).toFixed(1))
+        if (newEnd > seg.end) {
+          count++
+          return { ...seg, end: newEnd }
+        }
+      }
+      return seg
+    })
+    setSubtitles(updated)
+    setIsSubsDirty(true)
+    alert(`총 ${count}개의 짧은 자막을 시청하기 편하도록 넉넉하게 연장했습니다!`)
+  }
+
   function handleSeekTo(sec) {
     if (videoRef.current) {
       videoRef.current.currentTime = sec
@@ -631,10 +654,12 @@ export default function Editor() {
     }
   }
 
-  // 현재 시간에 일치하는 자막 세그먼트
-  const activeSegment = subtitles.find(
-    (s) => currentTime >= s.start && currentTime <= s.end
-  )
+  // 현재 시간에 일치하는 자막 세그먼트 (subLinger 여운 시간 적용하여 너무 빨리 사라지지 않고 충분히 읽을 수 있게 함)
+  const activeSegment = subtitles.find((s, idx) => {
+    const next = subtitles[idx + 1]
+    const maxEnd = next ? Math.min(s.end + subLinger, next.start - 0.05) : s.end + subLinger
+    return currentTime >= s.start && currentTime <= maxEnd
+  })
 
   return (
     <div className="editor-page">
@@ -812,6 +837,32 @@ export default function Editor() {
                         </button>
                       </div>
 
+                      {/* 자막 사라지는 유지 시간(여유) 설정 */}
+                      <div className="caption-linger-selector" title="말이 끝난 후 자막이 사라지기까지의 여유 시간">
+                        <span className="pos-label">⏳ 유지:</span>
+                        <button
+                          className={`btn-pos ${subLinger === 0.0 ? 'active' : ''}`}
+                          onClick={() => setSubLinger(0.0)}
+                          title="말 끝나자마자 즉시 사라짐"
+                        >
+                          0s
+                        </button>
+                        <button
+                          className={`btn-pos ${subLinger === 0.8 ? 'active' : ''}`}
+                          onClick={() => setSubLinger(0.8)}
+                          title="다음 말 나오기 전까지 0.8초 여유 있게 표시 (추천)"
+                        >
+                          0.8s
+                        </button>
+                        <button
+                          className={`btn-pos ${subLinger === 1.5 ? 'active' : ''}`}
+                          onClick={() => setSubLinger(1.5)}
+                          title="다음 말 나오기 전까지 1.5초 넉넉하게 표시"
+                        >
+                          1.5s
+                        </button>
+                      </div>
+
                       {/* 전체 자막 싱크(시간 위치) 일괄 조절 */}
                       {subtitles.length > 0 && (
                         <div className="sync-shift-group" title="목소리보다 자막이 빠르거나 느릴 때 전체 시간 일괄 이동">
@@ -978,6 +1029,13 @@ export default function Editor() {
                             ➕ 자막 추가
                           </button>
                           <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleExtendShortSubtitles(1.8)}
+                            title="너무 짧아서(1.8초 미만) 순식간에 사라지는 자막들을 읽기 편하게 자동으로 연장합니다"
+                          >
+                            ⏱ 짧은 자막 연장
+                          </button>
+                          <button
                             className={`btn btn-sm ${isSubsDirty ? 'btn-primary pulse-save-btn' : 'btn-secondary'}`}
                             onClick={handleSaveSubtitles}
                             disabled={savingSubs}
@@ -1122,6 +1180,13 @@ export default function Editor() {
                                     title="종료 0.2초 늦추기"
                                   >
                                     +0.2
+                                  </button>
+                                  <button
+                                    className="time-step-btn"
+                                    onClick={() => handleTimeStep(idx, 'end', 0.5)}
+                                    title="종료 0.5초 늦춰서 더 오래 보여주기"
+                                  >
+                                    +0.5
                                   </button>
                                   <input
                                     type="number"
