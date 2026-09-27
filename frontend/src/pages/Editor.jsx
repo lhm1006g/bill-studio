@@ -56,6 +56,8 @@ export default function Editor() {
   const [translateToKo, setTranslateToKo] = useState(false)
   const [translatingSubs, setTranslatingSubs] = useState(false)
   const [showSubtitles, setShowSubtitles] = useState(true)
+  const [showScreenOverlay, setShowScreenOverlay] = useState(true)
+  const [captionPos, setCaptionPos] = useState('bottom') // 'bottom' | 'middle' | 'top'
   const [subError, setSubError] = useState('')
   const [savingSubs, setSavingSubs] = useState(false)
   const [subsSavedNotice, setSubsSavedNotice] = useState(false)
@@ -467,6 +469,17 @@ export default function Editor() {
     setIsSubsDirty(true)
   }
 
+  function handleShiftAllSubtitles(delta) {
+    if (subtitles.length === 0) return
+    const updated = subtitles.map((seg) => ({
+      ...seg,
+      start: Number(Math.max(0, seg.start + delta).toFixed(2)),
+      end: Number(Math.max(0.1, seg.end + delta).toFixed(2)),
+    }))
+    setSubtitles(updated)
+    setIsSubsDirty(true)
+  }
+
   function handleSeekTo(sec) {
     if (videoRef.current) {
       videoRef.current.currentTime = sec
@@ -672,7 +685,7 @@ export default function Editor() {
                   </div>
                 )}
 
-                {/* 플레이어 래퍼 */}
+                {/* 플레이어 래퍼 (영상 화면 내부 자막 오버레이 포함) */}
                 <div className="video-wrapper">
                   <video
                     ref={videoRef}
@@ -684,16 +697,90 @@ export default function Editor() {
                     onTimeUpdate={handleTimeUpdate}
                     onLoadedMetadata={handleLoadedMetadata}
                   />
+
+                  {/* 📺 영상 화면 내부 오버레이 자막 (목소리가 나올 때 영상 안에서 정확히 일치) */}
+                  {showScreenOverlay && showSubtitles && activeSegment && (
+                    <div className={`video-screen-caption pos-${captionPos}`}>
+                      <div className="caption-bubble">
+                        {activeSegment.text}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-
-                {/* 💬 핵심 기능: 영상 밑 실시간 자막 디스플레이 바 */}
+                {/* 💬 영상 밑 실시간 자막 디스플레이 바 및 위치/싱크 컨트롤 */}
                 <div className="subtitle-display-container">
                   <div className="subtitle-display-header">
                     <span className="sub-title-tag">
                       💬 실시간 자막 {subtitlesLoaded ? `(${subtitles.length}문장)` : ''}
                     </span>
+
                     <div className="sub-display-actions">
+                      {/* 화면 자막 위치 선택 */}
+                      <div className="caption-pos-selector" title="영상 화면 내부 자막 위치 선택">
+                        <span className="pos-label">📺 화면 위치:</span>
+                        <button
+                          className={`btn-pos ${captionPos === 'bottom' ? 'active' : ''}`}
+                          onClick={() => setCaptionPos('bottom')}
+                        >
+                          하단
+                        </button>
+                        <button
+                          className={`btn-pos ${captionPos === 'middle' ? 'active' : ''}`}
+                          onClick={() => setCaptionPos('middle')}
+                        >
+                          중앙
+                        </button>
+                        <button
+                          className={`btn-pos ${captionPos === 'top' ? 'active' : ''}`}
+                          onClick={() => setCaptionPos('top')}
+                        >
+                          상단
+                        </button>
+                        <button
+                          className={`btn-pos ${showScreenOverlay ? 'active' : ''}`}
+                          onClick={() => setShowScreenOverlay(!showScreenOverlay)}
+                          title="영상 화면 위 자막 켜기/끄기"
+                        >
+                          {showScreenOverlay ? '화면자막 ON' : '화면자막 OFF'}
+                        </button>
+                      </div>
+
+                      {/* 전체 자막 싱크(시간 위치) 일괄 조절 */}
+                      {subtitles.length > 0 && (
+                        <div className="sync-shift-group" title="목소리보다 자막이 빠르거나 느릴 때 전체 시간 일괄 이동">
+                          <span className="sync-label">⏱ 싱크:</span>
+                          <button
+                            className="btn-sync-step"
+                            onClick={() => handleShiftAllSubtitles(-0.5)}
+                            title="전체 자막 0.5초 앞당기기"
+                          >
+                            -0.5s
+                          </button>
+                          <button
+                            className="btn-sync-step"
+                            onClick={() => handleShiftAllSubtitles(-0.2)}
+                            title="전체 자막 0.2초 앞당기기"
+                          >
+                            -0.2s
+                          </button>
+                          <button
+                            className="btn-sync-step"
+                            onClick={() => handleShiftAllSubtitles(0.2)}
+                            title="전체 자막 0.2초 늦추기"
+                          >
+                            +0.2s
+                          </button>
+                          <button
+                            className="btn-sync-step"
+                            onClick={() => handleShiftAllSubtitles(0.5)}
+                            title="전체 자막 0.5초 늦추기"
+                          >
+                            +0.5s
+                          </button>
+                        </div>
+                      )}
+
                       <button
                         className={`sub-toggle-btn ${showSubtitles ? 'active' : ''}`}
                         onClick={() => setShowSubtitles(!showSubtitles)}

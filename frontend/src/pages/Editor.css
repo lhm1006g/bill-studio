@@ -178,7 +178,7 @@
 }
 
 .video-wrapper {
-
+  position: relative;
   width: 100%;
   background: #000;
   border-radius: 10px;
@@ -198,6 +198,55 @@
   outline: none;
 }
 
+/* 📺 영상 화면 내부 오버레이 자막 (목소리가 나오는 그 위치에 정확히 표시) */
+.video-screen-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 10;
+  padding: 0 24px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.video-screen-caption.pos-bottom {
+  bottom: 56px;
+}
+
+.video-screen-caption.pos-middle {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.video-screen-caption.pos-top {
+  top: 28px;
+}
+
+.caption-bubble {
+  background: rgba(10, 10, 15, 0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+  text-align: center;
+  max-width: 88%;
+  line-height: 1.45;
+  letter-spacing: -0.2px;
+  animation: captionPop 0.15s ease-out;
+}
+
+@keyframes captionPop {
+  0% { transform: scale(0.96); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 /* ── 💬 핵심: 영상 밑 실시간 자막 디스플레이 바 ── */
 .subtitle-display-container {
   display: flex;
@@ -210,6 +259,76 @@
   justify-content: space-between;
   align-items: center;
   padding: 0 4px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sub-display-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.caption-pos-selector,
+.sync-shift-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+.pos-label,
+.sync-label {
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-right: 2px;
+}
+
+.btn-pos {
+  padding: 2px 7px;
+  font-size: 11px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-pos:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.btn-pos.active {
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(124, 92, 252, 0.35);
+}
+
+.btn-sync-step {
+  padding: 2px 6px;
+  font-size: 10px;
+  font-family: monospace;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-sync-step:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  transform: translateY(-1px);
 }
 
 .sub-title-tag {

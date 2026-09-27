@@ -42,6 +42,21 @@ VOICES = [
 ]
 
 
+def get_audio_duration(file_path: Path) -> float:
+    """오디오 파일의 정밀 재생 길이(초) 반환"""
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(file_path),
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return float(res.stdout.strip() or 0.0)
+    except Exception:
+        return 0.0
+
+
 class PreviewRequest(BaseModel):
     text: str
     voice: str = "ko-KR-SunHiNeural"
@@ -215,10 +230,12 @@ async def dub_video(req: DubbingRequest):
         elif cand2 and cand2.exists():
             bgm_path = cand2
 
-    # 임시 디렉토리에 각 세그먼트 음성 생성
+    # 임시 디렉토리에 각 세그먼트 음성 생성 및 정밀 타임코드 싱크 계산
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
         seg_audio_files = []
+        synced_segments = []
+        current_cursor = 0.0
 
         for idx, seg in enumerate(segments):
             text = seg.get("text", "").strip()
@@ -229,9 +246,33 @@ async def dub_video(req: DubbingRequest):
             try:
                 comm = edge_tts.Communicate(text, req.voice, rate=req.rate, pitch=req.pitch)
                 await comm.save(str(seg_file))
+
+                # 실제 생성된 AI 목소리의 재생 시간 측정
+                audio_dur = get_audio_duration(seg_file)
+                if audio_dur <= 0:
+                    audio_dur = max(1.0, float(seg.get("end", 0.0)) - float(seg.get("start", 0.0)))
+
+                orig_start = float(seg.get("start", 0.0))
+                # 이전 문장 목소리와 겹치지 않도록 시작 시간 보정
+                actual_start = max(orig_start, current_cursor)
+                actual_end = round(actual_start + audio_dur, 2)
+                actual_start = round(actual_start, 2)
+
+                # 다음 문장 시작 기준 커서 (최소 0.05초 여백)
+                current_cursor = actual_end + 0.05
+
                 seg_audio_files.append({
                     "path": seg_file,
-                    "start": seg.get("start", 0.0),
+                    "start": actual_start,
+                    "duration": audio_dur,
+                })
+
+                # 목소리 위치와 1:1로 완전 일치하는 자막 세그먼트
+                synced_segments.append({
+                    "id": idx + 1,
+                    "start": actual_start,
+                    "end": actual_end,
+                    "text": text,
                 })
             except Exception as e:
                 print(f"Segment {idx} TTS error: {e}")
@@ -330,18 +371,22 @@ async def dub_video(req: DubbingRequest):
         except subprocess.CalledProcessError as e:
             raise HTTPException(status_code=500, detail=f"더빙 영상 렌더링 실패: {str(e)}")
 
-        # 생성된 더빙 영상에도 자막 파일 복사 (자막 싱크 유지)
+        # 생성된 더빙 영상에 목소리와 1:1로 정밀 일치하는 자막 파일 저장
         sub_copy_path = DOWNLOAD_DIR / f"{output_video_path.stem}.subtitles.json"
         srt_copy_path = DOWNLOAD_DIR / f"{output_video_path.stem}.srt"
         try:
-            with open(json_path, "r", encoding="utf-8") as f_in, open(sub_copy_path, "w", encoding="utf-8") as f_out:
-                f_out.write(f_in.read())
-            orig_srt = DOWNLOAD_DIR / f"{video_path.stem}.srt"
-            if orig_srt.exists():
-                with open(orig_srt, "r", encoding="utf-8") as f_in, open(srt_copy_path, "w", encoding="utf-8") as f_out:
-                    f_out.write(f_in.read())
-        except Exception:
-            pass
+            with open(sub_copy_path, "w", encoding="utf-8") as f_out:
+                json.dump({
+                    "file": output_video_path.name,
+                    "segments": synced_segments,
+                }, f_out, ensure_ascii=False, indent=2)
+
+            from routers.subtitle import generate_srt
+            srt_content = generate_srt(synced_segments)
+            with open(srt_copy_path, "w", encoding="utf-8") as f_out:
+                f_out.write(srt_content)
+        except Exception as e:
+            print(f"Error saving synced subtitles: {e}")
 
         return {
             "status": "success",
