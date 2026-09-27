@@ -136,21 +136,57 @@ async def extract_subtitles(req: ExtractRequest):
         loop = asyncio.get_event_loop()
 
         def run_transcription():
-            # vad_filter: 무음 구간 자동 스킵하여 속도 및 정확도 향상
+            # vad_filter 및 word_timestamps 활성화하여 긴 침묵 구간 정밀 감지
             segments_gen, info = model.transcribe(
                 str(file_path),
                 language=req.language if req.language != "auto" else None,
                 vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=400),
                 beam_size=5,
+                word_timestamps=True,
             )
             parsed_segments = []
-            for idx, s in enumerate(segments_gen, start=1):
-                parsed_segments.append({
-                    "id": idx,
-                    "start": round(s.start, 2),
-                    "end": round(s.end, 2),
-                    "text": s.text.strip(),
-                })
+            seg_id = 1
+            for s in segments_gen:
+                text = s.text.strip()
+                if not text:
+                    continue
+
+                # 단어 타임스탬프 기반: 단어 간 텀이 1.2초 이상이면 자동으로 별도 자막으로 분할
+                words = getattr(s, "words", None)
+                if words and len(words) > 1:
+                    cur_words = []
+                    chunk_start = round(words[0].start, 2)
+                    for i, w in enumerate(words):
+                        if i > 0 and (w.start - words[i - 1].end >= 1.2):
+                            if cur_words:
+                                parsed_segments.append({
+                                    "id": seg_id,
+                                    "start": chunk_start,
+                                    "end": round(words[i - 1].end, 2),
+                                    "text": "".join([cw.word for cw in cur_words]).strip(),
+                                })
+                                seg_id += 1
+                                cur_words = []
+                                chunk_start = round(w.start, 2)
+                        cur_words.append(w)
+                    if cur_words:
+                        parsed_segments.append({
+                            "id": seg_id,
+                            "start": chunk_start,
+                            "end": round(cur_words[-1].end, 2),
+                            "text": "".join([cw.word for cw in cur_words]).strip(),
+                        })
+                        seg_id += 1
+                else:
+                    parsed_segments.append({
+                        "id": seg_id,
+                        "start": round(s.start, 2),
+                        "end": round(s.end, 2),
+                        "text": text,
+                    })
+                    seg_id += 1
+
             return parsed_segments, info
 
         segments, info = await loop.run_in_executor(None, run_transcription)

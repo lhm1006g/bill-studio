@@ -480,6 +480,72 @@ export default function Editor() {
     setIsSubsDirty(true)
   }
 
+  // 특정 세그먼트의 시작/종료 시간을 현재 재생 시간으로 즉시 맞추기
+  function handleSetTimeToCurrent(idx, field) {
+    const curTime = Number(currentTime.toFixed(1))
+    const updated = [...subtitles]
+    if (field === 'end') {
+      if (curTime <= updated[idx].start) {
+        alert('종료 시간은 시작 시간보다 커야 합니다.')
+        return
+      }
+      updated[idx] = { ...updated[idx], end: curTime }
+    } else {
+      if (curTime >= updated[idx].end) {
+        alert('시작 시간은 종료 시간보다 작아야 합니다.')
+        return
+      }
+      updated[idx] = { ...updated[idx], start: curTime }
+    }
+    setSubtitles(updated)
+    setIsSubsDirty(true)
+  }
+
+  // 긴 자막을 2개로 분할(Split)하기
+  function handleSplitSegment(idx) {
+    const seg = subtitles[idx]
+    if (!seg) return
+    const cur = Number(currentTime.toFixed(1))
+    let splitTime = (cur > seg.start + 0.3 && cur < seg.end - 0.3)
+      ? cur
+      : Number(((seg.start + seg.end) / 2).toFixed(1))
+
+    const words = (seg.text || '').trim().split(' ')
+    let text1 = seg.text
+    let text2 = '...'
+    if (words.length >= 2) {
+      const mid = Math.ceil(words.length / 2)
+      text1 = words.slice(0, mid).join(' ')
+      text2 = words.slice(mid).join(' ')
+    }
+
+    const seg1 = {
+      ...seg,
+      end: splitTime,
+      text: text1,
+    }
+    const seg2 = {
+      id: Date.now(),
+      start: Number((splitTime + 0.05).toFixed(1)),
+      end: seg.end,
+      text: text2,
+    }
+
+    const updated = [...subtitles]
+    updated.splice(idx, 1, seg1, seg2)
+    setSubtitles(updated)
+    setIsSubsDirty(true)
+  }
+
+  function handleDirectTimeChange(idx, field, valueStr) {
+    const val = parseFloat(valueStr)
+    if (isNaN(val)) return
+    const updated = [...subtitles]
+    updated[idx] = { ...updated[idx], [field]: Number(Math.max(0, val).toFixed(1)) }
+    setSubtitles(updated)
+    setIsSubsDirty(true)
+  }
+
   function handleSeekTo(sec) {
     if (videoRef.current) {
       videoRef.current.currentTime = sec
@@ -973,13 +1039,22 @@ export default function Editor() {
                               className={`script-item ${isActive ? 'active' : ''}`}
                             >
                               <div className="script-time-controls">
-                                <button
-                                  className="script-time-btn"
-                                  onClick={() => handleSeekTo(seg.start)}
-                                  title="클릭 시 이 시간대로 영상 재생 이동"
-                                >
-                                  ▶ {formatSeconds(seg.start)}
-                                </button>
+                                <div className="time-btn-row">
+                                  <button
+                                    className="script-time-btn"
+                                    onClick={() => handleSeekTo(seg.start)}
+                                    title="클릭 시 이 시간대로 영상 재생 이동"
+                                  >
+                                    ▶ {formatSeconds(seg.start)}
+                                  </button>
+                                  <button
+                                    className="time-now-btn"
+                                    onClick={() => handleSetTimeToCurrent(idx, 'start')}
+                                    title="현재 영상 재생 위치를 시작 시간으로 맞추기"
+                                  >
+                                    🎯현재
+                                  </button>
+                                </div>
                                 <div className="time-micro-adjust">
                                   <button
                                     className="time-step-btn"
@@ -995,6 +1070,14 @@ export default function Editor() {
                                   >
                                     +0.2
                                   </button>
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    className="time-direct-input"
+                                    value={seg.start}
+                                    onChange={(e) => handleDirectTimeChange(idx, 'start', e.target.value)}
+                                    title="시작 시간(초) 직접 입력"
+                                  />
                                 </div>
                               </div>
 
@@ -1009,9 +1092,22 @@ export default function Editor() {
                               </div>
 
                               <div className="script-end-controls">
-                                <span className="script-dur" title="종료 시간">
-                                  ~ {formatSeconds(seg.end)}
-                                </span>
+                                <div className="time-btn-row">
+                                  <button
+                                    className="script-dur-btn"
+                                    onClick={() => handleSeekTo(seg.end)}
+                                    title="클릭 시 종료 시간으로 영상 이동"
+                                  >
+                                    ~ {formatSeconds(seg.end)}
+                                  </button>
+                                  <button
+                                    className="time-now-btn end-now"
+                                    onClick={() => handleSetTimeToCurrent(idx, 'end')}
+                                    title="목소리가 끝난 현재 영상 위치로 종료 시간 즉시 맞춤"
+                                  >
+                                    🎯현재로 끝
+                                  </button>
+                                </div>
                                 <div className="time-micro-adjust">
                                   <button
                                     className="time-step-btn"
@@ -1027,10 +1123,25 @@ export default function Editor() {
                                   >
                                     +0.2
                                   </button>
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    className="time-direct-input"
+                                    value={seg.end}
+                                    onChange={(e) => handleDirectTimeChange(idx, 'end', e.target.value)}
+                                    title="종료 시간(초) 직접 입력"
+                                  />
                                 </div>
                               </div>
 
                               <div className="script-actions">
+                                <button
+                                  className="script-action-btn split-btn"
+                                  onClick={() => handleSplitSegment(idx)}
+                                  title="현재 영상 위치 또는 중간에서 이 자막을 2개로 분할(쪼개기)"
+                                >
+                                  ✂️
+                                </button>
                                 <button
                                   className="script-action-btn add-btn"
                                   onClick={() => handleAddSegment(idx)}
