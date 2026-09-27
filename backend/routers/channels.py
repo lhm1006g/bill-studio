@@ -86,6 +86,24 @@ STUDIO_CHANNELS = [
         "sub_position": "bottom",
         "shorts_style": "letterbox",
     },
+    {
+        "id": "rescene",
+        "name": "🌸 리센느 & K-POP",
+        "icon": "🌸",
+        "color": "#ec4899",
+        "folder": "rescene",
+        "description": "리센느(RESCENE) 무대 교차편집, 직캠 명장면, 킬링파트 챌린지 쇼츠",
+        "query": "리센느 직캠 쇼츠",
+        "en_query": "RESCENE fancam stage shorts challenge",
+        "voice": "ko-KR-SunHiNeural",
+        "voice_name": "선희 (발랄하고 깔끔한 여성)",
+        "voice_speed": 1.05,
+        "bgm_id": "ambient_piano",
+        "bgm_name": "원곡 오디오 유지 권장",
+        "bgm_volume": 0.10,
+        "sub_position": "bottom",
+        "shorts_style": "crop",
+    },
 ]
 
 

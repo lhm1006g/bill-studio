@@ -6,7 +6,7 @@ DOWNLOAD_DIR = BASE_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # 지원 채널 폴더 목록
-KNOWN_CHANNEL_FOLDERS = {"humanity", "sports", "animals", "tech"}
+KNOWN_CHANNEL_FOLDERS = {"humanity", "sports", "animals", "tech", "rescene"}
 
 
 def find_download_file(filename: str) -> Path | None:

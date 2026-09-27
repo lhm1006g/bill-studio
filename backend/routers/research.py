@@ -29,6 +29,7 @@ DEFAULT_PRESETS = [
     {"label": "💧 감동적인 동영상", "query": "감동적인 동영상"},
     {"label": "📜 해외 감동 실화", "query": "해외 감동 실화 스토리"},
     {"label": "⚽ 스포츠 명장면 쇼츠", "query": "스포츠 명장면 쇼츠"},
+    {"label": "🌸 리센느 직캠 쇼츠", "query": "리센느 직캠 쇼츠"},
     {"label": "🧠 AI 반도체 해설", "query": "반도체 AI 엔비디아 뉴스"},
     {"label": "🔥 100만뷰 바이럴 쇼츠", "query": "100만뷰 쇼츠 스토리텔링"},
     {"label": "🐱 귀여운 동물 힐링", "query": "귀여운 동물 감동 쇼츠"},
@@ -117,6 +118,10 @@ KO_TO_EN_TOPICS = {
     "100만뷰 바이럴 쇼츠": "viral shorts heartwarming stories that make you cry",
     "인류애": "faith in humanity restored wholesome",
     "길거리 인터뷰": "street interview emotional life advice",
+    "리센느": "RESCENE stage performance fancam shorts",
+    "리센느 직캠": "RESCENE fancam viral shorts stage",
+    "리센느 직캠 쇼츠": "RESCENE fancam stage shorts challenge",
+    "리센느 쇼츠": "RESCENE shorts challenge stage viral",
 }
 
 
@@ -222,10 +227,13 @@ def search_youtube(
 
     original_query = q.strip()
     search_query = original_query
+    is_kpop_query = "리센느" in original_query or "rescene" in original_query.lower()
 
     # 🌐 해외 원본 모드일 때 키워드 영문 변환
     if foreign_only:
-        if search_query in KO_TO_EN_TOPICS:
+        if is_kpop_query:
+            search_query = KO_TO_EN_TOPICS.get(original_query, f"{original_query} RESCENE fancam viral shorts")
+        elif search_query in KO_TO_EN_TOPICS:
             search_query = KO_TO_EN_TOPICS[search_query]
         elif contains_korean(search_query):
             try:
@@ -264,7 +272,8 @@ def search_youtube(
             channel = e.get("channel") or e.get("uploader") or "Unknown"
 
             # 🚫 해외 원본 모드일 때 한글이 포함된 제목/채널은 무조건 제외 (2차 가공물 배제)
-            if foreign_only:
+            # 단, K-POP(리센느 등)은 국내 음악방송 공식 직캠/무대도 글로벌 원본 소스이므로 한글 제외를 건너뜀
+            if foreign_only and not is_kpop_query:
                 if contains_korean(title) or contains_korean(channel):
                     continue
 

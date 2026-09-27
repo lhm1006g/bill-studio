@@ -74,6 +74,19 @@ const CHANNEL_PRESETS = {
     shortsStyle: 'letterbox',
     color: '#a855f7',
   },
+  rescene: {
+    id: 'rescene',
+    name: '🌸 리센느 & K-POP',
+    voice: 'ko-KR-SunHiNeural',
+    voiceName: '선희 (발랄 감성 여성)',
+    rate: '+5%',
+    bgmId: 'ambient_piano',
+    bgmName: '감성 피아노 앰비언트',
+    bgmVol: 0.1,
+    captionPos: 'bottom',
+    shortsStyle: 'crop',
+    color: '#ec4899',
+  },
 }
 
 export default function Editor() {
