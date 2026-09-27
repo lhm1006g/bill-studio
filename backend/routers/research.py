@@ -120,6 +120,89 @@ KO_TO_EN_TOPICS = {
 }
 
 
+def fetch_published_map(search_query: str) -> dict:
+    """
+    유튜브 Innertube Search API를 호출하여 비디오들의
+    상대적 업로드 일자(예: '3일 전', '4주 전', '1년 전' 등) 맵을 고속 추출합니다.
+    (1페이지 + 2페이지 continuation까지 최대 35개 이상 수집)
+    """
+    pub_map = {}
+    try:
+        import urllib.request
+        data = {
+            "context": {
+                "client": {
+                    "clientName": "WEB",
+                    "clientVersion": "2.20231201.00.00",
+                    "hl": "ko",
+                    "gl": "KR"
+                }
+            },
+            "query": search_query
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        req = urllib.request.Request(
+            "https://www.youtube.com/youtubei/v1/search",
+            data=json.dumps(data).encode("utf-8"),
+            headers=headers
+        )
+        with urllib.request.urlopen(req, timeout=4) as res:
+            resp = json.loads(res.read().decode("utf-8"))
+
+        cont_token = None
+
+        def extract_pubs(obj):
+            nonlocal cont_token
+            if isinstance(obj, dict):
+                if "videoRenderer" in obj:
+                    vr = obj["videoRenderer"]
+                    vid = vr.get("videoId")
+                    pub = vr.get("publishedTimeText", {}).get("simpleText")
+                    if vid and pub:
+                        pub_map[vid] = pub
+                if not cont_token and "continuationCommand" in obj:
+                    cont_token = obj["continuationCommand"].get("token")
+                for v in obj.values():
+                    extract_pubs(v)
+            elif isinstance(obj, list):
+                for item in obj:
+                    extract_pubs(item)
+
+        extract_pubs(resp)
+
+        # 2번째 페이지 continuation 고속 추가 조회 (날짜 누락 방지)
+        if cont_token and len(pub_map) < 30:
+            try:
+                data2 = {
+                    "context": {
+                        "client": {
+                            "clientName": "WEB",
+                            "clientVersion": "2.20231201.00.00",
+                            "hl": "ko",
+                            "gl": "KR"
+                        }
+                    },
+                    "continuation": cont_token
+                }
+                req2 = urllib.request.Request(
+                    "https://www.youtube.com/youtubei/v1/search",
+                    data=json.dumps(data2).encode("utf-8"),
+                    headers=headers
+                )
+                with urllib.request.urlopen(req2, timeout=3) as res2:
+                    resp2 = json.loads(res2.read().decode("utf-8"))
+                extract_pubs(resp2)
+            except Exception:
+                pass
+
+    except Exception as err:
+        print(f"[Research] Innertube published map fetch failed: {err}")
+    return pub_map
+
+
 # ─── 유튜브 실시간 검색 API ───────────────────────────────────────────────
 @router.get("/search")
 def search_youtube(
@@ -129,7 +212,7 @@ def search_youtube(
     limit: int = 24,
 ):
     """
-    yt-dlp 기반 유튜브 실시간 검색
+    yt-dlp 기반 유튜브 실시간 검색 및 Innertube 날짜 매핑
     foreign_only=True 시:
     - 영문 키워드로 자동 변환하여 글로벌 유튜브 검색
     - 제목에 한글이 단 1글자라도 들어간 2차 가공 영상은 100% 필터링하여 순수 해외 원본만 추출
@@ -151,6 +234,9 @@ def search_youtube(
                     search_query = f"{translated} viral wholesome"
             except Exception:
                 search_query = f"{search_query} english viral"
+
+    # 날짜(업로드 시점) 매핑을 위한 Innertube 고속 조회
+    pub_map = fetch_published_map(search_query)
 
     # 검색 건수 (해외 필터링 고려하여 넉넉히 가져옴)
     fetch_count = limit * 3 if foreign_only else limit * 2
@@ -193,10 +279,13 @@ def search_youtube(
             if not thumbnail:
                 thumbnail = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
 
+            published = pub_map.get(vid) or ""
+
             results.append({
                 "id": vid,
                 "title": title,
                 "channel": channel,
+                "published": published,
                 "view_count": view_count,
                 "views_formatted": format_views(view_count),
                 "duration_sec": duration_sec,

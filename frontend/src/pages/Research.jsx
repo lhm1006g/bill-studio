@@ -421,7 +421,12 @@ export default function Research() {
 
                       <div className="video-meta">
                         <span className="video-channel">👤 {video.channel}</span>
-                        <span className="video-views">🔥 {video.views_formatted}</span>
+                        <div className="video-meta-right">
+                          {video.published && (
+                            <span className="video-date" title="업로드 시점">📅 {video.published}</span>
+                          )}
+                          <span className="video-views">🔥 {video.views_formatted}</span>
+                        </div>
                       </div>
 
                       {/* 3대 핵심 액션 버튼 */}
