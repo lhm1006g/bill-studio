@@ -225,9 +225,9 @@
 }
 
 .caption-bubble {
-  background: rgba(10, 10, 15, 0.82);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(10, 10, 15, 0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   color: #ffffff;
   font-size: 16px;
   font-weight: 600;
@@ -236,9 +236,13 @@
   border: 1px solid rgba(255, 255, 255, 0.25);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
   text-align: center;
-  max-width: 88%;
-  line-height: 1.45;
+  max-width: 82%;
+  line-height: 1.5;
   letter-spacing: -0.2px;
+  white-space: pre-line;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  text-wrap: balance;
   animation: captionPop 0.15s ease-out;
 }
 
@@ -383,6 +387,10 @@
   line-height: 1.5;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
   letter-spacing: -0.2px;
+  white-space: pre-line;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  text-wrap: balance;
 }
 
 .subtitle-placeholder {

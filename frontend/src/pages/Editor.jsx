@@ -597,6 +597,61 @@ export default function Editor() {
     setIsSubsDirty(true)
   }
 
+  // 한 줄이 너무 긴 자막을 읽기 좋게 적절한 띄어쓰기 위치에서 2줄로 자동 줄바꿈해 주는 함수
+  function formatDisplaySubtitle(text, maxLineChars = 20) {
+    if (!text) return ''
+    if (text.includes('\n')) return text // 이미 줄바꿈이 있으면 그대로 존중
+
+    const trimmed = text.trim()
+    if (trimmed.length <= maxLineChars) return trimmed
+
+    const words = trimmed.split(' ')
+    if (words.length <= 1) return trimmed
+
+    // 문장의 중앙 지점에 가장 가까운 단어 분할 지점 찾기
+    const targetLen = Math.floor(trimmed.length / 2)
+    let bestIdx = 1
+    let minDiff = 999999
+    let currentLen = 0
+
+    for (let i = 0; i < words.length - 1; i++) {
+      currentLen += words[i].length + (i > 0 ? 1 : 0)
+      const diff = Math.abs(currentLen - targetLen)
+      if (diff < minDiff) {
+        minDiff = diff
+        bestIdx = i + 1
+      }
+    }
+
+    const line1 = words.slice(0, bestIdx).join(' ')
+    const line2 = words.slice(bestIdx).join(' ')
+    return `${line1}\n${line2}`
+  }
+
+  // 긴 자막(20자 이상)을 대본 텍스트 자체에서 2줄로 자동 줄바꿈
+  function handleAutoWrapLongSubtitles(maxLineChars = 20) {
+    if (subtitles.length === 0) return
+    let count = 0
+    const updated = subtitles.map((seg) => {
+      const original = seg.text || ''
+      if (original.includes('\n') || original.length <= maxLineChars) return seg
+      const wrapped = formatDisplaySubtitle(original, maxLineChars)
+      if (wrapped !== original) {
+        count++
+        return { ...seg, text: wrapped }
+      }
+      return seg
+    })
+
+    if (count > 0) {
+      setSubtitles(updated)
+      setIsSubsDirty(true)
+      alert(`총 ${count}개의 긴 자막을 읽기 편하게 2줄로 자동 줄바꿈했습니다!`)
+    } else {
+      alert('20자 이상의 긴 자막이 없거나 이미 줄바꿈되어 있습니다.')
+    }
+  }
+
   function handleSeekTo(sec) {
     if (videoRef.current) {
       videoRef.current.currentTime = sec
@@ -837,7 +892,7 @@ export default function Editor() {
                   {showScreenOverlay && showSubtitles && activeSegment && (
                     <div className={`video-screen-caption pos-${captionPos}`}>
                       <div className="caption-bubble">
-                        {activeSegment.text}
+                        {formatDisplaySubtitle(activeSegment.text)}
                       </div>
                     </div>
                   )}
@@ -962,7 +1017,7 @@ export default function Editor() {
                   {showSubtitles && (
                     <div className={`live-subtitle-bar ${activeSegment ? 'active' : 'idle'}`}>
                       {activeSegment ? (
-                        <span className="subtitle-active-text">{activeSegment.text}</span>
+                        <span className="subtitle-active-text">{formatDisplaySubtitle(activeSegment.text)}</span>
                       ) : (
                         <span className="subtitle-placeholder">
                           {subtitlesLoaded
@@ -1081,10 +1136,17 @@ export default function Editor() {
                           </button>
                           <button
                             className="btn btn-secondary btn-sm"
-                            onClick={() => handleSmartBridgeSubtitles(3.5)}
-                            title="연속되는 대화 자막의 종료 시간을 다음 자막 시작 직전(0.1초 전)으로 연결합니다. (음성 간격이 긴 구간은 자막이 정상 퇴장하도록 보존)"
+                            onClick={() => handleSmartBridgeSubtitles()}
+                            title="연속되는 대화 자막의 종료 시간을 다음 자막 시작 직전(0.1초 전)으로 연결합니다."
                           >
                             🔗 다음 자막 직전까지 연결
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleAutoWrapLongSubtitles(20)}
+                            title="20자 이상 긴 자막을 읽기 편하게 2줄로 자동 줄바꿈합니다"
+                          >
+                            ↩️ 긴 자막 2줄 줄바꿈
                           </button>
                           <button
                             className={`btn btn-sm ${isSubsDirty ? 'btn-primary pulse-save-btn' : 'btn-secondary'}`}
