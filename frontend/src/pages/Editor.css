@@ -271,7 +271,7 @@
 }
 
 .caption-pos-selector,
-.caption-linger-selector,
+.caption-flow-selector,
 .sync-shift-group {
   display: flex;
   align-items: center;
@@ -695,6 +695,18 @@
 .time-now-btn.end-now:hover {
   background: #f59e0b;
   color: #111;
+}
+
+.time-now-btn.next-start-btn {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.4);
+  color: #a5b4fc;
+}
+
+.time-now-btn.next-start-btn:hover {
+  background: #6366f1;
+  color: #ffffff;
+  transform: translateY(-1px);
 }
 
 .script-dur-btn {

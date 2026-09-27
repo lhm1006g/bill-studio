@@ -58,7 +58,7 @@ export default function Editor() {
   const [showSubtitles, setShowSubtitles] = useState(true)
   const [showScreenOverlay, setShowScreenOverlay] = useState(true)
   const [captionPos, setCaptionPos] = useState('bottom') // 'bottom' | 'middle' | 'top'
-  const [subLinger, setSubLinger] = useState(0.8) // 자막 표시 여운 시간 (초)
+  const [subFlowMode, setSubFlowMode] = useState('smart') // 'smart': 다음 자막 직전까지 유지(긴 간격은 퇴장), 'exact': 타임코드 정시 퇴장
   const [subError, setSubError] = useState('')
   const [savingSubs, setSavingSubs] = useState(false)
   const [subsSavedNotice, setSubsSavedNotice] = useState(false)
@@ -547,26 +547,51 @@ export default function Editor() {
     setIsSubsDirty(true)
   }
 
-  // 짧은 자막 지속 시간을 최소 1.8초로 일괄 넉넉하게 연장
-  function handleExtendShortSubtitles(minDuration = 1.8) {
+  // 연속 대화 자막의 종료 시간을 다음 자막 시작 직전(0.1초 전)으로 스마트 일괄 연결
+  // 단, 음성 간격이 긴 구간(3.5초 초과)은 억지로 늘리지 않고 자막이 제때 떨어지도록 보존
+  function handleSmartBridgeSubtitles(maxGap = 3.5) {
     if (subtitles.length === 0) return
     let count = 0
     const updated = subtitles.map((seg, idx) => {
-      const curDur = seg.end - seg.start
-      if (curDur < minDuration) {
-        const next = subtitles[idx + 1]
-        const maxEnd = next ? Math.max(seg.end, next.start - 0.1) : seg.start + minDuration
-        const newEnd = Number(Math.min(seg.start + minDuration, maxEnd).toFixed(1))
-        if (newEnd > seg.end) {
+      const next = subtitles[idx + 1]
+      if (!next) return seg
+      const gap = next.start - seg.end
+      // 간격이 0.05초 이상이고 maxGap(3.5초) 이내인 대화 구간만 다음 자막 직전으로 연결
+      if (gap >= 0.05 && gap <= maxGap) {
+        const newEnd = Number((next.start - 0.1).toFixed(1))
+        if (newEnd > seg.start && newEnd !== seg.end) {
           count++
           return { ...seg, end: newEnd }
         }
       }
+      // 음성 간격이 긴 구간(예: 11.8초 등)은 자막이 제때 떨어져야 하므로 그대로 둠!
       return seg
     })
+    if (count > 0) {
+      setSubtitles(updated)
+      setIsSubsDirty(true)
+      alert(`총 ${count}개의 자막을 다음 자막 직전(0.1초 전)까지 자연스럽게 연결했습니다!\n(음성 간격이 긴 구간은 자막이 정상적으로 떨어지도록 보존되었습니다.)`)
+    } else {
+      alert('연결할 수 있는 연속 자막(간격 3.5초 이내)이 이미 최적화되어 있습니다.')
+    }
+  }
+
+  // 특정 1개 자막만 다음 자막 직전(0.1초 전)으로 연결
+  function handleSetEndToNextStart(idx) {
+    const next = subtitles[idx + 1]
+    if (!next) {
+      alert('다음 자막이 없습니다.')
+      return
+    }
+    const newEnd = Number((next.start - 0.1).toFixed(1))
+    if (newEnd <= subtitles[idx].start) {
+      alert('다음 자막 시작 시간이 현재 자막 시작 시간보다 작거나 같습니다.')
+      return
+    }
+    const updated = [...subtitles]
+    updated[idx] = { ...updated[idx], end: newEnd }
     setSubtitles(updated)
     setIsSubsDirty(true)
-    alert(`총 ${count}개의 짧은 자막을 시청하기 편하도록 넉넉하게 연장했습니다!`)
   }
 
   function handleSeekTo(sec) {
@@ -654,11 +679,32 @@ export default function Editor() {
     }
   }
 
-  // 현재 시간에 일치하는 자막 세그먼트 (subLinger 여운 시간 적용하여 너무 빨리 사라지지 않고 충분히 읽을 수 있게 함)
+  // 현재 시간에 일치하는 자막 세그먼트
+  // - smart 모드: 대화가 연속될 때(간격 3.5초 이내) 다음 자막 나오기 직전까지 유지하여 금방 꺼지지 않음
+  //               단, 음성 간격이 길 때(3.5초 초과)는 다음 자막까지 유지되지 않고 제때 떨어져 화면을 비움
+  // - exact 모드: 자막의 end 시간에 즉시 퇴장
   const activeSegment = subtitles.find((s, idx) => {
-    const next = subtitles[idx + 1]
-    const maxEnd = next ? Math.min(s.end + subLinger, next.start - 0.05) : s.end + subLinger
-    return currentTime >= s.start && currentTime <= maxEnd
+    if (currentTime < s.start) return false
+
+    if (subFlowMode === 'smart') {
+      const next = subtitles[idx + 1]
+      if (next) {
+        const gap = next.start - s.end
+        if (gap > 0 && gap <= 3.5) {
+          // 연속 대화 구간: 다음 자막 나오기 직전(0.08초 전)에 자연스럽게 사라짐/교체
+          return currentTime < (next.start - 0.08)
+        } else if (gap > 3.5) {
+          // 음성 간격이 긴 구간(예: 11.8초 등): 자막이 계속 떠있지 않고 제때 떨어짐!
+          return currentTime <= (s.end + 0.5)
+        } else {
+          return currentTime <= Math.max(s.end, next.start - 0.08)
+        }
+      } else {
+        return currentTime <= (s.end + 0.8)
+      }
+    } else {
+      return currentTime <= s.end
+    }
   })
 
   return (
@@ -837,29 +883,22 @@ export default function Editor() {
                         </button>
                       </div>
 
-                      {/* 자막 사라지는 유지 시간(여유) 설정 */}
-                      <div className="caption-linger-selector" title="말이 끝난 후 자막이 사라지기까지의 여유 시간">
-                        <span className="pos-label">⏳ 유지:</span>
+                      {/* 자막 전환/유지 방식 설정 */}
+                      <div className="caption-flow-selector" title="자막 표시 및 퇴장 방식">
+                        <span className="pos-label">⚡ 자막 흐름:</span>
                         <button
-                          className={`btn-pos ${subLinger === 0.0 ? 'active' : ''}`}
-                          onClick={() => setSubLinger(0.0)}
-                          title="말 끝나자마자 즉시 사라짐"
+                          className={`btn-pos ${subFlowMode === 'smart' ? 'active' : ''}`}
+                          onClick={() => setSubFlowMode('smart')}
+                          title="대화 구간은 다음 자막 직전에 사라지고, 음성 간격이 길면 제때 떨어집니다 (추천)"
                         >
-                          0s
+                          다음 자막 직전까지 (스마트)
                         </button>
                         <button
-                          className={`btn-pos ${subLinger === 0.8 ? 'active' : ''}`}
-                          onClick={() => setSubLinger(0.8)}
-                          title="다음 말 나오기 전까지 0.8초 여유 있게 표시 (추천)"
+                          className={`btn-pos ${subFlowMode === 'exact' ? 'active' : ''}`}
+                          onClick={() => setSubFlowMode('exact')}
+                          title="말 끝나는 시간에 즉시 사라집니다"
                         >
-                          0.8s
-                        </button>
-                        <button
-                          className={`btn-pos ${subLinger === 1.5 ? 'active' : ''}`}
-                          onClick={() => setSubLinger(1.5)}
-                          title="다음 말 나오기 전까지 1.5초 넉넉하게 표시"
-                        >
-                          1.5s
+                          말 끝나는 대로
                         </button>
                       </div>
 
@@ -1030,10 +1069,10 @@ export default function Editor() {
                           </button>
                           <button
                             className="btn btn-secondary btn-sm"
-                            onClick={() => handleExtendShortSubtitles(1.8)}
-                            title="너무 짧아서(1.8초 미만) 순식간에 사라지는 자막들을 읽기 편하게 자동으로 연장합니다"
+                            onClick={() => handleSmartBridgeSubtitles(3.5)}
+                            title="연속되는 대화 자막의 종료 시간을 다음 자막 시작 직전(0.1초 전)으로 연결합니다. (음성 간격이 긴 구간은 자막이 정상 퇴장하도록 보존)"
                           >
-                            ⏱ 짧은 자막 연장
+                            🔗 다음 자막 직전까지 연결
                           </button>
                           <button
                             className={`btn btn-sm ${isSubsDirty ? 'btn-primary pulse-save-btn' : 'btn-secondary'}`}
@@ -1165,6 +1204,15 @@ export default function Editor() {
                                   >
                                     🎯현재로 끝
                                   </button>
+                                  {idx < subtitles.length - 1 && (
+                                    <button
+                                      className="time-now-btn next-start-btn"
+                                      onClick={() => handleSetEndToNextStart(idx)}
+                                      title="이 자막의 종료 시간을 다음 자막 시작 0.1초 전으로 맞춤"
+                                    >
+                                      🔗다음 직전
+                                    </button>
+                                  )}
                                 </div>
                                 <div className="time-micro-adjust">
                                   <button
