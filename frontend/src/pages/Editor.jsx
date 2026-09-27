@@ -88,6 +88,16 @@ export default function Editor() {
   const bgmAudioRef = useRef(null)
   const bgmFileInputRef = useRef(null)
 
+  // 📱 쇼츠 9:16 변환 상태
+  const [shortsStyle, setShortsStyle] = useState('blur') // 'blur' | 'crop' | 'fit'
+  const [burnSubtitles, setBurnSubtitles] = useState(true)
+  const [headerTitle, setHeaderTitle] = useState('')
+  const [shortsStart, setShortsStart] = useState(0)
+  const [shortsEnd, setShortsEnd] = useState(0)
+  const [convertingShorts, setConvertingShorts] = useState(false)
+  const [shortsResult, setShortsResult] = useState(null)
+  const [shortsError, setShortsError] = useState('')
+
   const activeSegmentRef = useRef(null)
   const scriptListRef = useRef(null)
 
@@ -368,6 +378,11 @@ export default function Editor() {
           if (p.endTime) setEndTime(p.endTime)
           if (p.customOutName) setCustomOutName(p.customOutName)
           if (p.activeTab) setActiveTab(p.activeTab)
+          if (p.shortsStyle) setShortsStyle(p.shortsStyle)
+          if (p.burnSubtitles !== undefined) setBurnSubtitles(p.burnSubtitles)
+          if (p.headerTitle !== undefined) setHeaderTitle(p.headerTitle)
+          if (p.shortsStart !== undefined) setShortsStart(p.shortsStart)
+          if (p.shortsEnd) setShortsEnd(p.shortsEnd)
           if (p.currentTime > 0) {
             setCurrentTime(p.currentTime)
             setTimeout(() => {
@@ -505,6 +520,11 @@ export default function Editor() {
           startTime,
           endTime,
           customOutName,
+          shortsStyle,
+          burnSubtitles,
+          headerTitle,
+          shortsStart,
+          shortsEnd,
         }),
       })
 
@@ -777,6 +797,9 @@ export default function Editor() {
       if (endTime === 0 || endTime > dur) {
         setEndTime(dur)
       }
+      if (shortsEnd === 0 || shortsEnd > dur) {
+        setShortsEnd(Math.min(dur, 60))
+      }
     }
   }
 
@@ -797,6 +820,66 @@ export default function Editor() {
       if (t <= startTime) {
         setStartTime(Math.max(0, t - 10))
       }
+    }
+  }
+
+  function setShortsStartToCurrent() {
+    if (videoRef.current) {
+      const t = parseFloat(videoRef.current.currentTime.toFixed(1))
+      setShortsStart(t)
+      if (t >= shortsEnd) {
+        setShortsEnd(Math.min(duration, t + 59))
+      }
+    }
+  }
+
+  function setShortsEndToCurrent() {
+    if (videoRef.current) {
+      const t = parseFloat(videoRef.current.currentTime.toFixed(1))
+      setShortsEnd(t)
+      if (t <= shortsStart) {
+        setShortsStart(Math.max(0, t - 10))
+      }
+    }
+  }
+
+  async function handleConvertToShorts() {
+    if (!currentFile) return
+    if (shortsEnd <= shortsStart) {
+      alert('종료 시간은 시작 시간보다 커야 합니다.')
+      return
+    }
+
+    setConvertingShorts(true)
+    setShortsError('')
+    setShortsResult(null)
+
+    try {
+      const res = await fetch('/api/editor/shorts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file: currentFile,
+          style: shortsStyle,
+          burn_subtitles: burnSubtitles,
+          header_title: headerTitle.trim() || undefined,
+          start_time: shortsStart > 0 ? shortsStart : undefined,
+          end_time: (shortsEnd > 0 && shortsEnd < duration) ? shortsEnd : undefined,
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.detail || '쇼츠 변환에 실패했습니다.')
+      }
+
+      const data = await res.json()
+      setShortsResult(data)
+      loadFiles()
+    } catch (e) {
+      setShortsError(e.message)
+    } finally {
+      setConvertingShorts(false)
     }
   }
 
@@ -1170,6 +1253,12 @@ export default function Editor() {
                   onClick={() => setActiveTab('cut')}
                 >
                   ✂️ 구간 자르기 (Fast Cut)
+                </button>
+                <button
+                  className={`tab-btn ${activeTab === 'shorts' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('shorts')}
+                >
+                  📱 쇼츠 9:16 변환 (Shorts)
                 </button>
               </div>
 
@@ -1786,6 +1875,203 @@ export default function Editor() {
                       >
                         이 파일 열기
                       </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 탭 4: 쇼츠 9:16 변환 패널 */}
+              {activeTab === 'shorts' && (
+                <div className="card tool-card shorts-panel-card">
+                  <div className="tool-title">
+                    <div>
+                      <h3>📱 쇼츠 9:16 변환 (YouTube Shorts & Reels)</h3>
+                      <span className="tool-desc">
+                        일반 가로(16:9) 영상을 모바일 최적화 1080×1920 세로형 쇼츠로 원클릭 변환합니다.
+                      </span>
+                    </div>
+                    <span className="badge badge-accent">Mac 가속 인코딩 지원</span>
+                  </div>
+
+                  {/* 1. 스타일 선택 */}
+                  <div className="shorts-section">
+                    <label className="section-label">1. 화면 비율 & 배경 스타일 선택</label>
+                    <div className="shorts-style-grid">
+                      <div
+                        className={`shorts-style-card ${shortsStyle === 'blur' ? 'selected' : ''}`}
+                        onClick={() => setShortsStyle('blur')}
+                      >
+                        <div className="style-card-icon">✨</div>
+                        <div className="style-card-body">
+                          <strong>상하 블러 배경 (추천)</strong>
+                          <p>원본 가로 영상을 중앙에 두고, 위아래를 부드러운 가우시안 블러로 감쌉니다.</p>
+                        </div>
+                        {shortsStyle === 'blur' && <span className="style-check">✔</span>}
+                      </div>
+
+                      <div
+                        className={`shorts-style-card ${shortsStyle === 'crop' ? 'selected' : ''}`}
+                        onClick={() => setShortsStyle('crop')}
+                      >
+                        <div className="style-card-icon">🔍</div>
+                        <div className="style-card-body">
+                          <strong>꽉 찬 화면 크롭 (Crop)</strong>
+                          <p>화면을 1080×1920 세로로 꽉 채우며 중앙 중심 영역을 확대 추출합니다.</p>
+                        </div>
+                        {shortsStyle === 'crop' && <span className="style-check">✔</span>}
+                      </div>
+
+                      <div
+                        className={`shorts-style-card ${shortsStyle === 'fit' ? 'selected' : ''}`}
+                        onClick={() => setShortsStyle('fit')}
+                      >
+                        <div className="style-card-icon">🖤</div>
+                        <div className="style-card-body">
+                          <strong>상하 블랙바 (Letterbox)</strong>
+                          <p>위아래를 깔끔한 블랙 바로 비우고 가로 영상을 원본 그대로 배치합니다.</p>
+                        </div>
+                        {shortsStyle === 'fit' && <span className="style-check">✔</span>}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. 자막 및 후킹 타이틀 설정 */}
+                  <div className="shorts-section">
+                    <label className="section-label">2. 자막 각인 및 상단 후킹 타이틀</label>
+                    <div className="shorts-options-row">
+                      <label className="toggle-label checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={burnSubtitles}
+                          onChange={(e) => setBurnSubtitles(e.target.checked)}
+                        />
+                        <span>
+                          <strong>화면에 AI 자막 영구 각인 (Burn-in)</strong>
+                          <small style={{ display: 'block', color: 'var(--text-muted)' }}>
+                            가독성 높은 넷플릭스 스타일 라운드 버블 자막을 영상 자체에 인코딩합니다.
+                          </small>
+                        </span>
+                      </label>
+                    </div>
+
+                    <div className="shorts-header-input-group">
+                      <label>상단 후킹 타이틀 (선택 사항)</label>
+                      <input
+                        className="input"
+                        placeholder="예: 🔥 안세영 미친 플레이 ㅋㅋ (입력 시 상단에 눈길 끄는 뱃지가 각인됩니다)"
+                        value={headerTitle}
+                        onChange={(e) => setHeaderTitle(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 3. 구간 자르기 (쇼츠 60초 제한 권장) */}
+                  <div className="shorts-section">
+                    <div className="section-label-row">
+                      <label className="section-label">3. 추출 구간 설정</label>
+                      <span className="badge badge-info">
+                        💡 유튜브 쇼츠/인스타 릴스 권장: 60초 이하 (현재: {Math.max(0, shortsEnd - shortsStart).toFixed(1)}초)
+                      </span>
+                    </div>
+
+                    <div className="cut-controls">
+                      <div className="time-input-group">
+                        <label>시작 시간</label>
+                        <div className="time-row">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max={duration}
+                            className="input time-input"
+                            value={shortsStart}
+                            onChange={(e) => setShortsStart(parseFloat(e.target.value) || 0)}
+                          />
+                          <button className="btn btn-secondary btn-sm" onClick={setShortsStartToCurrent}>
+                            📍 현재 위치
+                          </button>
+                        </div>
+                        <span className="time-display">{formatSeconds(shortsStart)}</span>
+                      </div>
+
+                      <div className="time-input-group">
+                        <label>종료 시간</label>
+                        <div className="time-row">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max={duration}
+                            className="input time-input"
+                            value={shortsEnd}
+                            onChange={(e) => setShortsEnd(parseFloat(e.target.value) || 0)}
+                          />
+                          <button className="btn btn-secondary btn-sm" onClick={setShortsEndToCurrent}>
+                            📍 현재 위치
+                          </button>
+                        </div>
+                        <span className="time-display">{formatSeconds(shortsEnd)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 실행 버튼 */}
+                  <div className="shorts-action-row">
+                    <button
+                      className="btn btn-primary btn-lg shorts-convert-btn"
+                      onClick={handleConvertToShorts}
+                      disabled={convertingShorts || shortsEnd <= shortsStart}
+                    >
+                      {convertingShorts ? (
+                        <>
+                          <span className="spinner-inline"></span>
+                          <span>⏳ 1080×1920 세로 쇼츠 변환 렌더링 중...</span>
+                        </>
+                      ) : (
+                        '⚡ 1080×1920 쇼츠 변환 시작'
+                      )}
+                    </button>
+                  </div>
+
+                  {shortsError && <p className="error-msg">❌ {shortsError}</p>}
+
+                  {/* 4. 변환 완료 결과 카드 */}
+                  {shortsResult && (
+                    <div className="shorts-result-card">
+                      <div className="shorts-result-header">
+                        <div className="success-icon">🎉</div>
+                        <div>
+                          <strong style={{ fontSize: '1.15rem' }}>쇼츠 영상 제작 완료!</strong>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', margin: '4px 0 0 0' }}>
+                            파일명: <code>{shortsResult.output_file}</code> ({formatSize(shortsResult.output_size)})
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="shorts-preview-container">
+                        <video
+                          src={shortsResult.url}
+                          controls
+                          className="shorts-preview-player"
+                          playsInline
+                        />
+                      </div>
+
+                      <div className="shorts-result-actions">
+                        <a
+                          href={shortsResult.url}
+                          download={shortsResult.output_file}
+                          className="btn btn-primary"
+                        >
+                          ⬇️ 쇼츠 영상 다운로드
+                        </a>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => handleSelectFile(shortsResult.output_file)}
+                        >
+                          🎬 이 쇼츠 파일로 편집기 열기
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

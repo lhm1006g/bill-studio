@@ -1339,4 +1339,227 @@
   margin-top: 10px;
 }
 
+/* ── 📱 쇼츠 9:16 변환 전용 스타일 ── */
+.shorts-panel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.shorts-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.section-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.badge-accent {
+  background: rgba(124, 92, 252, 0.15);
+  color: var(--accent-light, #a78bfa);
+  border: 1px solid rgba(124, 92, 252, 0.3);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-info {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* 스타일 선택 카드 그리드 */
+.shorts-style-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.shorts-style-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  background: var(--bg-card);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.shorts-style-card:hover {
+  border-color: rgba(124, 92, 252, 0.5);
+  background: rgba(255, 255, 255, 0.03);
+  transform: translateY(-2px);
+}
+
+.shorts-style-card.selected {
+  border-color: var(--accent);
+  background: rgba(124, 92, 252, 0.08);
+  box-shadow: 0 4px 16px rgba(124, 92, 252, 0.2);
+}
+
+.style-card-icon {
+  font-size: 26px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.style-card-body strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.style-card-body p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.style-check {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  color: var(--accent);
+  font-weight: bold;
+  font-size: 14px;
+}
+
+/* 옵션 행 */
+.shorts-options-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  padding: 10px 14px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.shorts-header-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shorts-header-input-group label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* 실행 버튼 */
+.shorts-action-row {
+  display: flex;
+  justify-content: center;
+  padding-top: 8px;
+}
+
+.shorts-convert-btn {
+  width: 100%;
+  max-width: 480px;
+  padding: 14px 28px;
+  font-size: 16px;
+  font-weight: 700;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #7c5cfc, #3b82f6);
+  box-shadow: 0 4px 20px rgba(124, 92, 252, 0.4);
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.shorts-convert-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(124, 92, 252, 0.55);
+}
+
+/* 결과 카드 */
+.shorts-result-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  background: rgba(16, 185, 129, 0.05);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-md);
+  margin-top: 10px;
+  animation: slideDown 0.3s ease-out;
+}
+
+.shorts-result-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.shorts-preview-container {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  background: #09090e;
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+}
+
+.shorts-preview-player {
+  max-height: 520px;
+  width: auto;
+  aspect-ratio: 9 / 16;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  background: #000;
+}
+
+.shorts-result-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+}
+
 

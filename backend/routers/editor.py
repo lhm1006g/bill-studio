@@ -300,6 +300,11 @@ class ProjectSaveRequest(BaseModel):
     startTime: float | None = 0.0
     endTime: float | None = 0.0
     customOutName: str | None = ""
+    shortsStyle: str | None = "blur"
+    burnSubtitles: bool | None = True
+    headerTitle: str | None = ""
+    shortsStart: float | None = 0.0
+    shortsEnd: float | None = 0.0
 
 
 @router.post("/project/save")
@@ -329,6 +334,11 @@ async def save_editor_project(req: ProjectSaveRequest):
         "startTime": req.startTime or 0.0,
         "endTime": req.endTime or 0.0,
         "customOutName": req.customOutName or "",
+        "shortsStyle": req.shortsStyle or "blur",
+        "burnSubtitles": req.burnSubtitles if req.burnSubtitles is not None else True,
+        "headerTitle": req.headerTitle or "",
+        "shortsStart": req.shortsStart or 0.0,
+        "shortsEnd": req.shortsEnd or 0.0,
         "subtitles_count": len(req.subtitles) if req.subtitles else 0,
     }
 
@@ -372,4 +382,276 @@ async def load_editor_project(file: str):
         }
     except Exception as e:
         return {"has_project": False, "error": str(e)}
+
+
+# ── 📱 원클릭 쇼츠(Shorts) 9:16 변환 & 자막 각인(Burn-in) ──
+import tempfile
+from PIL import Image, ImageDraw, ImageFont
+
+
+class ShortsConvertRequest(BaseModel):
+    file: str
+    style: str = "blur"  # 'blur' (블러 배경), 'crop' (중앙 확대), 'fit' (상하 여백)
+    burn_subtitles: bool = True  # 자막 영상 각인 여부
+    header_title: str | None = ""  # 상단 타이틀 텍스트
+    start_time: float | None = 0.0
+    end_time: float | None = None
+
+
+def get_korean_font(size: int = 46):
+    """macOS 시스템 한글 폰트 로드"""
+    font_paths = [
+        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+        "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    ]
+    for p in font_paths:
+        if os.path.exists(p):
+            try:
+                return ImageFont.truetype(p, size)
+            except:
+                continue
+    return ImageFont.load_default()
+
+
+def format_sub_2lines(text: str, max_chars: int = 20) -> str:
+    """긴 자막 2줄 어절 밸런싱"""
+    if not text:
+        return ""
+    if "\n" in text:
+        return text
+    trimmed = text.strip()
+    if len(trimmed) <= max_chars:
+        return trimmed
+    words = trimmed.split(" ")
+    if len(words) <= 1:
+        return trimmed
+
+    target_len = len(trimmed) // 2
+    best_idx = 1
+    min_diff = 999999
+    cur_len = 0
+    for i in range(len(words) - 1):
+        cur_len += len(words[i]) + (1 if i > 0 else 0)
+        diff = abs(cur_len - target_len)
+        if diff < min_diff:
+            min_diff = diff
+            best_idx = i + 1
+
+    line1 = " ".join(words[:best_idx])
+    line2 = " ".join(words[best_idx:])
+    return f"{line1}\n{line2}"
+
+
+@router.post("/shorts")
+async def convert_to_shorts(req: ShortsConvertRequest):
+    """
+    일반 가로 영상을 1080x1920 세로 9:16 쇼츠 영상으로 원클릭 변환
+    - style: blur(블러 배경), crop(중앙 확대), fit(상하 여백)
+    - burn_subtitles: 자막 화면 영구 각인
+    - header_title: 상단 후킹 타이틀 바
+    """
+    file_path = find_download_file(req.file)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="영상 파일을 찾을 수 없습니다.")
+
+    # 출력 파일명 생성
+    out_stem = f"{file_path.stem}_shorts_9x16_{req.style}"
+    out_name = f"{out_stem}.mp4"
+    output_path = DOWNLOAD_DIR / out_name
+
+    # 자막 데이터 불러오기 (자막 각인 요청 시)
+    segments = []
+    if req.burn_subtitles:
+        sub_file = DOWNLOAD_DIR / f"{file_path.stem}.subtitles.json"
+        if sub_file.exists():
+            try:
+                with open(sub_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    segments = data.get("segments", [])
+            except:
+                pass
+
+    # 임시 디렉토리에서 오버레이 이미지들 생성
+    temp_dir = tempfile.mkdtemp(prefix="shorts_overlay_")
+    overlay_inputs = []
+    overlay_filters = []
+    filter_complex_parts = []
+
+    # 1. 기본 9:16 화면 캔버스 필터
+    if req.style == "crop":
+        filter_complex_parts.append(
+            "[0:v]scale=-2:1920:force_original_aspect_ratio=increase,crop=1080:1920[base_v]"
+        )
+    elif req.style == "fit":
+        filter_complex_parts.append(
+            "[0:v]scale=1080:-2:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black[base_v]"
+        )
+    else:  # 기본 blur
+        filter_complex_parts.append(
+            "[0:v]split=2[bg_in][fg_in];"
+            "[bg_in]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=26:5[bg];"
+            "[fg_in]scale=1080:-2:force_original_aspect_ratio=decrease[fg];"
+            "[bg][fg]overlay=(W-w)/2:(H-h)/2[base_v]"
+        )
+
+    last_v = "[base_v]"
+    input_idx = 1
+
+    # 2. 상단 헤더 타이틀 오버레이 생성 (옵션)
+    if req.header_title and req.header_title.strip():
+        header_text = req.header_title.strip()
+        header_img = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
+        draw_h = ImageDraw.Draw(header_img)
+        font_h = get_korean_font(size=52)
+
+        bbox_h = draw_h.multiline_textbbox((0, 0), header_text, font=font_h, align="center")
+        tw_h = bbox_h[2] - bbox_h[0]
+        th_h = bbox_h[3] - bbox_h[1]
+        cx_h, cy_h = 540, 240
+        pad_x, pad_y = 36, 18
+        box_h = [cx_h - tw_h//2 - pad_x, cy_h - th_h//2 - pad_y, cx_h + tw_h//2 + pad_x, cy_h + th_h//2 + pad_y]
+
+        # 톡톡 튀는 노란색 하이라이트 박스 + 검은색 텍스트
+        draw_h.rounded_rectangle(box_h, radius=24, fill=(255, 221, 0, 240), outline=(255, 255, 255, 200), width=3)
+        draw_h.multiline_text((cx_h, cy_h), header_text, font=font_h, fill=(10, 10, 15, 255), anchor="mm", align="center")
+
+        h_path = os.path.join(temp_dir, "header_title.png")
+        header_img.save(h_path)
+        overlay_inputs.extend(["-i", h_path])
+
+        next_v = f"[v_h]"
+        filter_complex_parts.append(f"{last_v}[{input_idx}:v]overlay=0:0{next_v}")
+        last_v = next_v
+        input_idx += 1
+
+    # 3. 자막 각인 오버레이 생성 (각 자막 세그먼트별)
+    font_sub = get_korean_font(size=46)
+    offset_time = req.start_time or 0.0
+
+    valid_segments = []
+    if req.burn_subtitles and segments:
+        for idx, seg in enumerate(segments):
+            s_start = seg.get("start", 0.0)
+            s_end = seg.get("end", 0.0)
+            text = seg.get("text", "").strip()
+
+            if not text:
+                continue
+
+            # 구간 자르기 범위에 걸치는지 확인
+            if req.end_time and req.end_time > 0 and s_start >= req.end_time:
+                continue
+            if s_end <= offset_time:
+                continue
+
+            # 타임 오프셋 보정
+            adj_start = max(0.0, round(s_start - offset_time, 2))
+            adj_end = round(s_end - offset_time, 2)
+            if req.end_time and req.end_time > 0:
+                adj_end = min(round(req.end_time - offset_time, 2), adj_end)
+
+            if adj_end <= adj_start:
+                continue
+
+            # 2줄 줄바꿈 적용
+            display_text = format_sub_2lines(text, max_chars=20)
+
+            # 자막 이미지 그리기
+            sub_img = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
+            draw_s = ImageDraw.Draw(sub_img)
+            bbox_s = draw_s.multiline_textbbox((0, 0), display_text, font=font_sub, align="center")
+            tw_s = bbox_s[2] - bbox_s[0]
+            th_s = bbox_s[3] - bbox_s[1]
+
+            cx_s, cy_s = 540, 1500  # 쇼츠 화면 하단 안전지대
+            pad_s_x, pad_s_y = 28, 16
+            box_s = [cx_s - tw_s//2 - pad_s_x, cy_s - th_s//2 - pad_s_y, cx_s + tw_s//2 + pad_s_x, cy_s + th_s//2 + pad_s_y]
+
+            # 반투명 둥근 글래스모피즘 박스
+            draw_s.rounded_rectangle(box_s, radius=20, fill=(12, 12, 18, 220), outline=(255, 255, 255, 75), width=2)
+            # 텍스트 그림자
+            draw_s.multiline_text((cx_s + 1, cy_s + 2), display_text, font=font_sub, fill=(0, 0, 0, 180), anchor="mm", align="center")
+            # 본문 텍스트 (흰색)
+            draw_s.multiline_text((cx_s, cy_s), display_text, font=font_sub, fill=(255, 255, 255, 255), anchor="mm", align="center")
+
+            sub_path = os.path.join(temp_dir, f"sub_{idx}.png")
+            sub_img.save(sub_path)
+            overlay_inputs.extend(["-i", sub_path])
+
+            next_v = f"[v_sub_{idx}]"
+            filter_complex_parts.append(
+                f"{last_v}[{input_idx}:v]overlay=0:0:enable='between(t,{adj_start},{adj_end})'{next_v}"
+            )
+            last_v = next_v
+            input_idx += 1
+
+    # 최종 필터그래프 완성
+    filter_complex_str = ";".join(filter_complex_parts)
+
+    # ffmpeg 명령어 조립
+    cmd = ["ffmpeg", "-y"]
+
+    if req.start_time and req.start_time > 0:
+        cmd.extend(["-ss", str(req.start_time)])
+    if req.end_time and req.end_time > 0 and req.end_time > (req.start_time or 0.0):
+        duration = req.end_time - (req.start_time or 0.0)
+        cmd.extend(["-t", str(duration)])
+
+    cmd.extend(["-i", str(file_path)])
+    cmd.extend(overlay_inputs)
+    cmd.extend([
+        "-filter_complex", filter_complex_str,
+        "-map", last_v,
+        "-map", "0:a?",
+        "-c:v", "h264_videotoolbox",
+        "-b:v", "6500k",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        str(output_path),
+    ])
+
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        # 하드웨어 가속 실패 시 libx264 소프트웨어 fallback
+        cmd_fallback = [
+            "ffmpeg", "-y",
+        ]
+        if req.start_time and req.start_time > 0:
+            cmd_fallback.extend(["-ss", str(req.start_time)])
+        if req.end_time and req.end_time > 0 and req.end_time > (req.start_time or 0.0):
+            cmd_fallback.extend(["-t", str(req.end_time - (req.start_time or 0.0))])
+
+        cmd_fallback.extend(["-i", str(file_path)])
+        cmd_fallback.extend(overlay_inputs)
+        cmd_fallback.extend([
+            "-filter_complex", filter_complex_str,
+            "-map", last_v,
+            "-map", "0:a?",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "22",
+            "-c:a", "aac",
+            str(output_path),
+        ])
+        try:
+            subprocess.run(cmd_fallback, capture_output=True, text=True, check=True)
+        except Exception as err:
+            raise HTTPException(status_code=500, detail=f"쇼츠 변환 실패: {str(err)}")
+    finally:
+        # 임시 디렉토리 및 파일 정리
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    return {
+        "status": "success",
+        "message": "9:16 쇼츠 변환 완료!",
+        "output_file": out_name,
+        "output_size": output_path.stat().st_size,
+        "url": f"/api/media/{urllib.parse.quote(out_name)}",
+        "style": req.style,
+        "burned_subtitles": req.burn_subtitles,
+    }
+
 
