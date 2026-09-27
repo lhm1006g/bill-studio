@@ -59,6 +59,7 @@ export default function Editor() {
   const [showScreenOverlay, setShowScreenOverlay] = useState(true)
   const [captionPos, setCaptionPos] = useState('bottom') // 'bottom' | 'middle' | 'top'
   const [subFlowMode, setSubFlowMode] = useState('smart') // 'smart': 다음 자막 직전까지 유지(긴 간격은 퇴장), 'exact': 타임코드 정시 퇴장
+  const [maxDisplaySec, setMaxDisplaySec] = useState(4.0) // 자막 최대 표시 시간 (초, 0이면 무제한)
   const [subError, setSubError] = useState('')
   const [savingSubs, setSavingSubs] = useState(false)
   const [subsSavedNotice, setSubsSavedNotice] = useState(false)
@@ -547,31 +548,34 @@ export default function Editor() {
     setIsSubsDirty(true)
   }
 
-  // 자막의 종료 시간을 다음 자막 시작 직전(0.1초 전)으로 일괄 연결
-  // 모든 자막이 다음 자막 직전까지 끊김 없이 편안하게 유지되도록 맞춤
-  function handleSmartBridgeSubtitles(maxGap = 45.0) {
+  // 자막의 종료 시간을 다음 자막 시작 직전(0.1초 전)으로 연결하되, 최대 표시 시간(maxDisplaySec)까지만 제한
+  function handleSmartBridgeSubtitles() {
     if (subtitles.length === 0) return
     let count = 0
     const updated = subtitles.map((seg, idx) => {
       const next = subtitles[idx + 1]
       if (!next) return seg
-      const gap = next.start - seg.end
-      // 간격이 0.05초 이상이고 maxGap(45초) 이내인 경우 다음 자막 직전으로 연결
-      if (gap >= 0.05 && gap <= maxGap) {
-        const newEnd = Number((next.start - 0.1).toFixed(1))
-        if (newEnd > seg.start && newEnd !== seg.end) {
-          count++
-          return { ...seg, end: newEnd }
-        }
+
+      const bridgeEnd = Number((next.start - 0.1).toFixed(1))
+      // 최대 허용 시간 계산 (0이면 제한 없음)
+      const capEnd = maxDisplaySec > 0 ? Number((seg.start + maxDisplaySec).toFixed(1)) : 999999
+      // 원래 음성 발화 시간과 최대 허용 시간 중 큰 값까지는 보장
+      const maxAllowed = Math.max(seg.end, capEnd)
+      const newEnd = Math.min(bridgeEnd, maxAllowed)
+
+      if (newEnd > seg.start && newEnd !== seg.end) {
+        count++
+        return { ...seg, end: newEnd }
       }
       return seg
     })
     if (count > 0) {
       setSubtitles(updated)
       setIsSubsDirty(true)
-      alert(`총 ${count}개의 자막을 다음 자막 직전(0.1초 전)까지 편안하게 연결했습니다!`)
+      const limitText = maxDisplaySec > 0 ? ` (최대 ${maxDisplaySec}초)` : ''
+      alert(`총 ${count}개의 자막을 다음 자막 직전까지${limitText} 자연스럽게 연결했습니다!`)
     } else {
-      alert('이미 모든 자막이 다음 자막 직전까지 맞춰져 있습니다.')
+      alert('이미 모든 자막이 설정된 최대 시간 및 다음 자막 직전까지 최적화되어 있습니다.')
     }
   }
 
@@ -679,22 +683,25 @@ export default function Editor() {
   }
 
   // 현재 시간에 일치하는 자막 세그먼트:
-  // 자막이 나왔다가 금방 사라지지 않고, 다음 자막이 나오기 직전까지 끊김 없이 화면에 유지됨
+  // - 다음 자막이 나오기 직전까지 화면에 유지하되,
+  // - 음성 간격이 너무 벌어져 있을 때는 설정된 최대 시간(maxDisplaySec)까지만 표시 후 깔끔하게 퇴장
   const activeSegment = subtitles.find((s, idx) => {
     if (currentTime < s.start) return false
 
+    // 자막 최대 표시 한도 계산 (0이면 무제한 다음 자막 직전까지)
+    // 원래 대사 발화 시간(s.end)과 (s.start + maxDisplaySec) 중 큰 값은 온전히 보장
+    const capEnd = maxDisplaySec > 0 ? (s.start + maxDisplaySec) : 999999
+    const maxAllowedEnd = Math.max(s.end, capEnd)
+
     const next = subtitles[idx + 1]
     if (next) {
-      // 다음 자막이 시작되기 직전(0.08초 전)까지 계속 화면에 유지!
-      // (단, 대화 사이 간격이 45초 이상 비어있는 극단적인 경우에만 15초 후 퇴장)
-      const gap = next.start - s.end
-      if (gap > 45.0) {
-        return currentTime <= Math.max(s.end + 10.0, s.start + 12.0)
-      }
-      return currentTime < (next.start - 0.08)
+      // 다음 자막 직전(next.start - 0.08)과 최대 허용 시간 중 더 빠른 시점에 퇴장
+      const displayEnd = Math.min(next.start - 0.08, maxAllowedEnd)
+      return currentTime < displayEnd
     } else {
-      // 마지막 자막은 끝난 후 4초간 여유 있게 유지
-      return currentTime <= (s.end + 4.0)
+      // 마지막 자막은 끝난 후 여유 있게 유지하되 최대 시간 제한 적용
+      const displayEnd = Math.min(s.end + 3.0, maxAllowedEnd)
+      return currentTime <= displayEnd
     }
   })
 
@@ -874,22 +881,36 @@ export default function Editor() {
                         </button>
                       </div>
 
-                      {/* 자막 전환/유지 방식 설정 */}
-                      <div className="caption-flow-selector" title="자막 표시 및 퇴장 방식">
-                        <span className="pos-label">⚡ 자막 흐름:</span>
+                      {/* 자막 최대 유지/표시 시간 조절기 */}
+                      <div className="caption-flow-selector" title="음성 간격이 길 때 자막이 화면에 머무르는 최대 시간">
+                        <span className="pos-label">⏱ 최대 표시:</span>
                         <button
-                          className={`btn-pos ${subFlowMode === 'smart' ? 'active' : ''}`}
-                          onClick={() => setSubFlowMode('smart')}
-                          title="대화 구간은 다음 자막 직전에 사라지고, 음성 간격이 길면 제때 떨어집니다 (추천)"
+                          className={`btn-pos ${maxDisplaySec === 3.0 ? 'active' : ''}`}
+                          onClick={() => setMaxDisplaySec(3.0)}
+                          title="자막을 최대 3초까지만 띄우고 퇴장"
                         >
-                          다음 자막 직전까지 (스마트)
+                          3초
                         </button>
                         <button
-                          className={`btn-pos ${subFlowMode === 'exact' ? 'active' : ''}`}
-                          onClick={() => setSubFlowMode('exact')}
-                          title="말 끝나는 시간에 즉시 사라집니다"
+                          className={`btn-pos ${maxDisplaySec === 4.0 ? 'active' : ''}`}
+                          onClick={() => setMaxDisplaySec(4.0)}
+                          title="자막을 최대 4초까지만 띄우고 퇴장 (가장 편안한 추천)"
                         >
-                          말 끝나는 대로
+                          4초 (추천)
+                        </button>
+                        <button
+                          className={`btn-pos ${maxDisplaySec === 6.0 ? 'active' : ''}`}
+                          onClick={() => setMaxDisplaySec(6.0)}
+                          title="자막을 최대 6초까지만 띄우고 퇴장"
+                        >
+                          6초
+                        </button>
+                        <button
+                          className={`btn-pos ${maxDisplaySec === 0 ? 'active' : ''}`}
+                          onClick={() => setMaxDisplaySec(0)}
+                          title="다음 자막이 나올 때까지 시간 제한 없이 계속 띄움"
+                        >
+                          무제한
                         </button>
                       </div>
 
