@@ -21,10 +21,69 @@ function formatSize(bytes) {
   return (bytes / 1024).toFixed(0) + ' KB'
 }
 
+const CHANNEL_PRESETS = {
+  humanity: {
+    id: 'humanity',
+    name: '💧 인류애 & 감동 실화',
+    voice: 'ko-KR-SunHiNeural',
+    voiceName: '선희 (따뜻한 여성)',
+    rate: '+5%',
+    bgmId: 'ambient_piano',
+    bgmName: '감성 피아노 앰비언트',
+    bgmVol: 0.15,
+    captionPos: 'middle',
+    shortsStyle: 'blur',
+    color: '#38bdf8',
+  },
+  sports: {
+    id: 'sports',
+    name: '⚡ 스포츠 명장면',
+    voice: 'ko-KR-HyunsuNeural',
+    voiceName: '현수 (박진감 남성)',
+    rate: '+15%',
+    bgmId: 'cinematic_beat',
+    bgmName: '박진감 시네마틱 비트',
+    bgmVol: 0.12,
+    captionPos: 'bottom',
+    shortsStyle: 'crop',
+    color: '#f59e0b',
+  },
+  animals: {
+    id: 'animals',
+    name: '🐾 동물 힐링',
+    voice: 'ko-KR-SunHiNeural',
+    voiceName: '선희 (다정 감성 여성)',
+    rate: '+5%',
+    bgmId: 'ambient_acoustic',
+    bgmName: '어쿠스틱 포근 앰비언트',
+    bgmVol: 0.15,
+    captionPos: 'middle',
+    shortsStyle: 'blur',
+    color: '#10b981',
+  },
+  tech: {
+    id: 'tech',
+    name: '🧠 미래 테크 & AI',
+    voice: 'ko-KR-InJoonNeural',
+    voiceName: '인준 (신뢰 다큐 남성)',
+    rate: '+10%',
+    bgmId: 'deep_tech',
+    bgmName: '딥 테크 일렉트로닉',
+    bgmVol: 0.1,
+    captionPos: 'bottom',
+    shortsStyle: 'letterbox',
+    color: '#a855f7',
+  },
+}
+
 export default function Editor() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const currentFile = searchParams.get('file')
+  const initialChannel = searchParams.get('channel')
+
+  const [currentChannel, setCurrentChannel] = useState(initialChannel || null)
+  const [channelNotice, setChannelNotice] = useState('')
 
   const [fileList, setFileList] = useState([])
   const [loadingFiles, setLoadingFiles] = useState(false)
@@ -212,6 +271,27 @@ export default function Editor() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [currentFile, subtitles, currentTime, activeTab, selectedVoice, selectedBgm, bgmVolume, origVolume, captionPos, maxDisplaySec])
 
+  // 채널 프리셋 자동 적용 함수
+  function applyChannelPreset(channelId, showNotice = true) {
+    const preset = CHANNEL_PRESETS[channelId]
+    if (!preset) return
+
+    setCurrentChannel(channelId)
+    setSelectedVoice(preset.voice)
+    setTtsRate(preset.rate)
+    setCaptionPos(preset.captionPos)
+    setShortsStyle(preset.shortsStyle)
+    if (preset.bgmId) setSelectedBgm(preset.bgmId)
+    if (preset.bgmVol) setBgmVolume(preset.bgmVol)
+
+    if (showNotice) {
+      setChannelNotice(
+        `📺 [${preset.name}] 채널 톤앤매너가 자동 세팅되었습니다: 성우(${preset.voiceName}) / BGM(${preset.bgmName}) / 자막(${preset.captionPos === 'middle' ? '중앙 버블' : '하단'})`
+      )
+      setTimeout(() => setChannelNotice(''), 7000)
+    }
+  }
+
   async function loadFiles() {
     setLoadingFiles(true)
     try {
@@ -244,6 +324,12 @@ export default function Editor() {
       setDuration(data.duration || 0)
       setStartTime(0)
       setEndTime(data.duration ? Math.min(data.duration, 30) : 0)
+
+      // 채널 감지: URL 쿼리 파라미터 우선, 없으면 파일 속성 채널
+      const ch = searchParams.get('channel') || data.channel
+      if (ch && CHANNEL_PRESETS[ch]) {
+        applyChannelPreset(ch, true)
+      }
     } catch (e) {
       setInfoError(e.message)
     } finally {
@@ -1028,9 +1114,34 @@ export default function Editor() {
     <div className="editor-page">
       {/* 상단 네비게이션 */}
       <div className="editor-topbar">
-        <button className="btn btn-secondary btn-sm" onClick={() => navigate('/downloader')}>
-          ← 다운로더로 돌아가기
-        </button>
+        <div className="topbar-left">
+          <button className="btn btn-secondary btn-sm" onClick={() => navigate('/downloader')}>
+            ← 다운로더로 돌아가기
+          </button>
+
+          {/* 채널 톤앤매너 선택기 */}
+          {currentFile && (
+            <div className="topbar-channel-selector" title="채널을 변경하면 성우, BGM, 자막 및 쇼츠 스타일이 해당 채널 톤앤매너로 즉시 자동 전환됩니다.">
+              <span className="selector-icon">📺</span>
+              <select
+                className="topbar-channel-select"
+                value={currentChannel || ''}
+                onChange={(e) => {
+                  const val = e.target.value
+                  if (val) applyChannelPreset(val, true)
+                }}
+              >
+                <option value="">⚙️ 채널 프리셋 선택...</option>
+                {Object.values(CHANNEL_PRESETS).map(ch => (
+                  <option key={ch.id} value={ch.id}>
+                    {ch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
         {currentFile && (
           <div className="topbar-actions">
             <button
@@ -1054,6 +1165,15 @@ export default function Editor() {
           </div>
         )}
       </div>
+
+      {/* 채널 프리셋 적용 알림 배너 */}
+      {channelNotice && (
+        <div className="channel-notice-banner">
+          <span className="notice-icon">✨</span>
+          <span>{channelNotice}</span>
+          <button className="banner-close-btn" onClick={() => setChannelNotice('')}>✕</button>
+        </div>
+      )}
 
       {projectLoadedNotice && (
         <div className="project-notice-banner">

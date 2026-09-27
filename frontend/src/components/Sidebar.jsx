@@ -3,6 +3,7 @@ import './Sidebar.css'
 
 const menuItems = [
   { path: '/dashboard',  icon: '🏠', label: '대시보드' },
+  { path: '/research',   icon: '💡', label: '콘텐츠 발굴' },
   { path: '/downloader', icon: '⬇️', label: '다운로드' },
   { path: '/editor',     icon: '✂️', label: '영상 편집' },
   { path: '/subtitle',   icon: '📝', label: '자막' },

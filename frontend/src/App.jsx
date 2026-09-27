@@ -8,6 +8,7 @@ import Subtitle from './pages/Subtitle'
 import Schedule from './pages/Schedule'
 import News from './pages/News'
 import AiChat from './pages/AiChat'
+import Research from './pages/Research'
 import './App.css'
 
 function App() {
@@ -21,6 +22,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/research" element={<Research />} />
               <Route path="/downloader" element={<Downloader />} />
               <Route path="/editor" element={<Editor />} />
               <Route path="/subtitle" element={<Subtitle />} />

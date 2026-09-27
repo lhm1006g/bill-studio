@@ -98,9 +98,17 @@ async def get_video_info(req: VideoInfoRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+CHANNEL_LABELS = {
+    "humanity": "💧 인류애 & 감동 실화",
+    "sports": "⚡ 스포츠 명장면",
+    "animals": "🐾 동물 힐링",
+    "tech": "🧠 미래 테크 & AI",
+}
+
+
 @router.get("/start")
-async def download_video(url: str, format_id: str):
-    """영상 다운로드 - SSE(Server-Sent Events)로 실시간 진행률 전송"""
+async def download_video(url: str, format_id: str, channel: str | None = None):
+    """영상 다운로드 - SSE(Server-Sent Events)로 실시간 진행률 전송 (채널별 폴더 자동 분류)"""
 
     async def event_stream():
         progress_data = {"percent": "0%", "speed": "", "eta": ""}
@@ -116,13 +124,20 @@ async def download_video(url: str, format_id: str):
             elif d["status"] == "finished":
                 progress_data["percent"] = "100%"
 
+        # 채널 지정 시 채널 전용 폴더에 저장, 없으면 기본 downloads 루트에 저장
+        if channel and channel in CHANNEL_LABELS:
+            target_dir = DOWNLOAD_DIR / channel
+        else:
+            target_dir = DOWNLOAD_DIR
+        target_dir.mkdir(parents=True, exist_ok=True)
+
         is_audio = format_id == "audio"
 
         if is_audio:
             ydl_opts = {
                 **DOWNLOAD_OPTS,
                 "format": "bestaudio/best",
-                "outtmpl": str(DOWNLOAD_DIR / "%(title)s.%(ext)s"),
+                "outtmpl": str(target_dir / "%(title)s.%(ext)s"),
                 "overwrites": True,
                 "postprocessors": [{
                     "key": "FFmpegExtractAudio",
@@ -146,13 +161,11 @@ async def download_video(url: str, format_id: str):
                     f"/best[height<={height}]"
                     f"/best"
                 ),
-                "outtmpl": str(DOWNLOAD_DIR / "%(title)s [%(height)sp].%(ext)s"),
+                "outtmpl": str(target_dir / "%(title)s [%(height)sp].%(ext)s"),
                 "merge_output_format": "mp4",
                 "overwrites": True,
                 "progress_hooks": [progress_hook],
             }
-
-
 
         loop = asyncio.get_event_loop()
 
@@ -170,7 +183,7 @@ async def download_video(url: str, format_id: str):
 
         try:
             await task
-            yield f"data: {json.dumps({'status': 'done', 'save_dir': str(DOWNLOAD_DIR)})}\n\n"
+            yield f"data: {json.dumps({'status': 'done', 'save_dir': str(target_dir), 'channel': channel})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
 
@@ -185,27 +198,52 @@ async def download_video(url: str, format_id: str):
 
 
 @router.get("/history")
-async def get_history():
-    """다운로드된 파일 목록"""
+async def get_history(channel: str | None = None):
+    """다운로드된 파일 목록 (루트 및 채널별 서브폴더 스캔)"""
     files = []
     if DOWNLOAD_DIR.exists():
-        for f in DOWNLOAD_DIR.iterdir():
-            if f.is_file() and not f.name.startswith("."):
-                files.append({
-                    "name": f.name,
-                    "size": f.stat().st_size,
-                    "modified": f.stat().st_mtime,
-                })
+        # 루트 및 서브폴더 재귀 스캔 (미디어 파일만)
+        VALID_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".mp3", ".m4a", ".wav"}
+        for f in DOWNLOAD_DIR.rglob("*"):
+            if not f.is_file() or f.name.startswith("."):
+                continue
+            if f.suffix.lower() not in VALID_EXTS:
+                continue
+
+            # 채널 감지
+            rel_path = str(f.relative_to(DOWNLOAD_DIR))
+            file_channel = None
+            parts = f.relative_to(DOWNLOAD_DIR).parts
+            if len(parts) > 1 and parts[0] in CHANNEL_LABELS:
+                file_channel = parts[0]
+
+            # 채널 필터 적용
+            if channel and channel != "all":
+                if file_channel != channel:
+                    continue
+
+            files.append({
+                "name": f.name,
+                "rel_path": rel_path,
+                "channel": file_channel,
+                "channel_label": CHANNEL_LABELS.get(file_channel),
+                "size": f.stat().st_size,
+                "modified": f.stat().st_mtime,
+            })
+
     files.sort(key=lambda x: x["modified"], reverse=True)
     return {"files": files, "save_dir": str(DOWNLOAD_DIR)}
 
 
 @router.post("/open-folder")
-async def open_download_folder():
-    """Mac Finder에서 저장 폴더 열기"""
+async def open_download_folder(channel: str | None = None):
+    """Mac Finder에서 저장 폴더 열기 (채널 지정 가능)"""
     import subprocess
     try:
-        subprocess.run(["open", str(DOWNLOAD_DIR)], check=True)
+        target = DOWNLOAD_DIR
+        if channel and (DOWNLOAD_DIR / channel).exists():
+            target = DOWNLOAD_DIR / channel
+        subprocess.run(["open", str(target)], check=True)
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -7,8 +7,12 @@ ffmpeg-python
 faster-whisper
 httpx
 feedparser
+trafilatura
 newspaper3k
 ollama
 edge-tts
 deep-translator
-
+Pillow
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2

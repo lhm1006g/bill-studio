@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import './Downloader.css'
 
 
@@ -25,9 +25,19 @@ function formatDate(timestamp) {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+const CHANNELS_CONFIG = [
+  { id: 'humanity', name: '💧 인류애 & 감동 실화', color: '#38bdf8' },
+  { id: 'sports', name: '⚡ 스포츠 명장면', color: '#f59e0b' },
+  { id: 'animals', name: '🐾 동물 힐링', color: '#10b981' },
+  { id: 'tech', name: '🧠 미래 테크 & AI', color: '#a855f7' },
+]
+
 export default function Downloader() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [url, setUrl] = useState('')
+  const [selectedChannel, setSelectedChannel] = useState('humanity')
+  const [historyChannelFilter, setHistoryChannelFilter] = useState('all')
   const [info, setInfo] = useState(null)
   const [loading, setLoading] = useState(false)
   const [selectedFormat, setSelectedFormat] = useState(null)
@@ -38,14 +48,29 @@ export default function Downloader() {
   const [history, setHistory] = useState([])
   const esRef = useRef(null)
 
-
   useEffect(() => {
-    loadHistory()
-  }, [])
+    loadHistory(historyChannelFilter)
+  }, [historyChannelFilter])
 
-  async function loadHistory() {
+  // URL 및 channel 파라미터로 넘어왔을 때 자동 정보 조회
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const targetUrl = params.get('url')
+    const targetChannel = params.get('channel')
+    if (targetChannel && CHANNELS_CONFIG.some(c => c.id === targetChannel)) {
+      setSelectedChannel(targetChannel)
+      setHistoryChannelFilter(targetChannel)
+    }
+    if (targetUrl) {
+      setUrl(targetUrl)
+      handleSearch(targetUrl)
+    }
+  }, [location.search])
+
+  async function loadHistory(channel = 'all') {
     try {
-      const res = await fetch('/api/download/history')
+      const query = channel && channel !== 'all' ? `?channel=${channel}` : ''
+      const res = await fetch(`/api/download/history${query}`)
       if (res.ok) {
         const data = await res.json()
         setHistory(data.files || [])
@@ -64,8 +89,9 @@ export default function Downloader() {
     }
   }
 
-  async function handleSearch() {
-    if (!url.trim()) return
+  async function handleSearch(urlOverride = null) {
+    const targetUrl = (urlOverride || url).trim()
+    if (!targetUrl) return
     setLoading(true)
     setInfo(null)
     setError('')
@@ -74,7 +100,7 @@ export default function Downloader() {
       const res = await fetch('/api/download/info', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url: targetUrl }),
       })
       if (!res.ok) {
         const err = await res.json()
@@ -95,7 +121,11 @@ export default function Downloader() {
     setDlStatus('downloading')
     setProgress({ percent: '0%', speed: '', eta: '' })
 
-    const params = new URLSearchParams({ url, format_id: selectedFormat })
+    const params = new URLSearchParams({
+      url,
+      format_id: selectedFormat,
+      channel: selectedChannel,
+    })
     const es = new EventSource(`/api/download/start?${params}`)
     esRef.current = es
 
@@ -106,7 +136,7 @@ export default function Downloader() {
       } else if (data.status === 'done') {
         setDlStatus('done')
         setSaveDir(data.save_dir)
-        loadHistory()
+        loadHistory(historyChannelFilter)
         es.close()
       } else if (data.status === 'error') {
         setDlStatus('error')
@@ -123,8 +153,26 @@ export default function Downloader() {
 
   return (
     <div className="downloader">
-      {/* URL 입력 */}
+      {/* URL 입력 & 채널 선택 */}
       <div className="card url-section">
+        {/* 채널 선택 바 */}
+        <div className="dl-channel-select-row">
+          <span className="channel-label">📺 저장 대상 채널:</span>
+          <div className="channel-chips">
+            {CHANNELS_CONFIG.map(ch => (
+              <button
+                key={ch.id}
+                type="button"
+                className={`dl-channel-chip ${selectedChannel === ch.id ? 'active' : ''}`}
+                onClick={() => setSelectedChannel(ch.id)}
+                style={{ '--ch-color': ch.color }}
+              >
+                {ch.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="url-row">
           <input
             className="input url-input"
@@ -153,6 +201,9 @@ export default function Downloader() {
                 {info.view_count && (
                   <span className="tag">👁 {info.view_count.toLocaleString()}회</span>
                 )}
+                <span className="tag channel-tag">
+                  📁 {CHANNELS_CONFIG.find(c => c.id === selectedChannel)?.name}
+                </span>
               </div>
             </div>
           </div>
@@ -179,7 +230,7 @@ export default function Downloader() {
           {/* 다운로드 버튼 */}
           {dlStatus !== 'downloading' && dlStatus !== 'done' && (
             <button className="btn btn-primary dl-btn" onClick={handleDownload}>
-              ⬇️ 다운로드 시작
+              ⬇️ [{CHANNELS_CONFIG.find(c => c.id === selectedChannel)?.name}] 채널 폴더로 다운로드
             </button>
           )}
         </div>
@@ -188,7 +239,7 @@ export default function Downloader() {
       {/* 진행률 */}
       {dlStatus === 'downloading' && (
         <div className="card progress-card">
-          <h3>⬇️ 다운로드 중...</h3>
+          <h3>⬇️ [{CHANNELS_CONFIG.find(c => c.id === selectedChannel)?.name}] 다운로드 중...</h3>
           <div className="progress-bar-bg">
             <div className="progress-bar-fill" style={{ width: progress.percent }} />
           </div>
@@ -207,10 +258,18 @@ export default function Downloader() {
           <h3>다운로드 완료!</h3>
           <p className="save-dir">📁 저장 위치: <code>{saveDir}</code></p>
           <div style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
-            <button className="btn btn-primary" onClick={() => history[0] && navigate(`/editor?file=${encodeURIComponent(history[0].name)}`)}>
-              ✂️ 바로 편집기로 열기
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                const targetFile = history[0]?.rel_path || history[0]?.name
+                if (targetFile) {
+                  navigate(`/editor?file=${encodeURIComponent(targetFile)}&channel=${selectedChannel}`)
+                }
+              }}
+            >
+              ✂️ 바로 편집기로 열기 (채널 맞춤 세팅)
             </button>
-            <button className="btn btn-secondary" onClick={handleOpenFolder}>
+            <button className="btn btn-secondary" onClick={() => handleOpenFolder(selectedChannel)}>
               📂 Finder에서 열기
             </button>
             <button className="btn btn-secondary" onClick={() => { setDlStatus(null); setInfo(null); setUrl('') }}>
@@ -223,37 +282,69 @@ export default function Downloader() {
       {/* 최근 다운로드 목록 */}
       <div className="card history-card">
         <div className="history-header">
-          <h3>📂 다운로드 파일 목록 ({history.length}개)</h3>
+          <div className="history-header-left">
+            <h3>📂 다운로드 파일 목록 ({history.length}개)</h3>
+            {/* 채널 필터 탭 */}
+            <div className="history-channel-tabs">
+              <button
+                className={`filter-tab ${historyChannelFilter === 'all' ? 'active' : ''}`}
+                onClick={() => setHistoryChannelFilter('all')}
+              >
+                전체
+              </button>
+              {CHANNELS_CONFIG.map(ch => (
+                <button
+                  key={ch.id}
+                  className={`filter-tab ${historyChannelFilter === ch.id ? 'active' : ''}`}
+                  onClick={() => setHistoryChannelFilter(ch.id)}
+                >
+                  {ch.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="history-actions">
-            <button className="btn btn-secondary btn-sm" onClick={handleOpenFolder}>
+            <button className="btn btn-secondary btn-sm" onClick={() => handleOpenFolder(historyChannelFilter)}>
               📁 폴더 열기
             </button>
-            <button className="btn btn-secondary btn-sm" onClick={loadHistory}>
+            <button className="btn btn-secondary btn-sm" onClick={() => loadHistory(historyChannelFilter)}>
               🔄 새로고침
             </button>
           </div>
         </div>
 
         {history.length === 0 ? (
-          <p className="empty-history">아직 다운로드된 파일이 없습니다.</p>
+          <p className="empty-history">해당 채널에 다운로드된 파일이 없습니다.</p>
         ) : (
           <div className="history-list">
             {history.map((item, idx) => (
               <div
                 key={idx}
                 className="history-item clickable"
-                onClick={() => navigate(`/editor?file=${encodeURIComponent(item.name)}`)}
+                onClick={() => {
+                  const targetPath = item.rel_path || item.name
+                  const chParam = item.channel ? `&channel=${item.channel}` : ''
+                  navigate(`/editor?file=${encodeURIComponent(targetPath)}${chParam}`)
+                }}
                 title="클릭하여 동영상 편집기에서 열기"
               >
                 <span className="file-icon">🎬</span>
-                <span className="file-name">{item.name}</span>
+                <div className="file-name-block">
+                  <span className="file-name">{item.name}</span>
+                  {item.channel_label && (
+                    <span className="history-channel-badge">{item.channel_label}</span>
+                  )}
+                </div>
                 <span className="file-size">{formatSize(item.size)}</span>
                 <span className="file-date">{formatDate(item.modified)}</span>
                 <button
                   className="btn btn-primary btn-sm edit-shortcut-btn"
                   onClick={(e) => {
                     e.stopPropagation()
-                    navigate(`/editor?file=${encodeURIComponent(item.name)}`)
+                    const targetPath = item.rel_path || item.name
+                    const chParam = item.channel ? `&channel=${item.channel}` : ''
+                    navigate(`/editor?file=${encodeURIComponent(targetPath)}${chParam}`)
                   }}
                 >
                   ✂️ 편집

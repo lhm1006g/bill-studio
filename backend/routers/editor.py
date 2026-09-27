@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import edge_tts
 from PIL import Image, ImageDraw, ImageFont
-from utils import find_download_file, DOWNLOAD_DIR
+from utils import find_download_file, detect_file_channel, DOWNLOAD_DIR
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 BGM_DIR = BASE_DIR / "backend" / "assets" / "bgm"
@@ -31,30 +31,40 @@ class ConvertRequest(BaseModel):
 
 
 @router.get("/files")
-async def list_editable_files():
-    """편집 가능한 영상/음원 파일 목록"""
+async def list_editable_files(channel: str | None = None):
+    """편집 가능한 영상/음원 파일 목록 (루트 및 채널 서브폴더 스캔)"""
     files = []
+    VALID_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".mp3", ".m4a", ".wav"}
     if DOWNLOAD_DIR.exists():
-        for f in DOWNLOAD_DIR.iterdir():
-            if f.is_file() and not f.name.startswith("."):
-                ext = f.suffix.lower()
-                if ext in [".mp4", ".mkv", ".webm", ".mov", ".avi", ".mp3", ".m4a", ".wav"]:
-                    files.append({
-                        "name": f.name,
-                        "size": f.stat().st_size,
-                        "modified": f.stat().st_mtime,
-                        "ext": ext.replace(".", ""),
-                    })
+        for f in DOWNLOAD_DIR.rglob("*"):
+            if not f.is_file() or f.name.startswith("."):
+                continue
+            ext = f.suffix.lower()
+            if ext in VALID_EXTS:
+                ch = detect_file_channel(f)
+                if channel and channel != "all" and ch != channel:
+                    continue
+                files.append({
+                    "name": f.name,
+                    "rel_path": str(f.relative_to(DOWNLOAD_DIR)),
+                    "channel": ch,
+                    "size": f.stat().st_size,
+                    "modified": f.stat().st_mtime,
+                    "ext": ext.replace(".", ""),
+                })
     files.sort(key=lambda x: x["modified"], reverse=True)
     return {"files": files}
 
 
 @router.get("/info")
 async def get_media_info(file: str):
-    """ffprobe를 사용해 상세 미디어 정보 추출"""
+    """ffprobe를 사용해 상세 미디어 정보 추출 및 채널 감지"""
     file_path = find_download_file(file)
     if not file_path:
         raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+
+    # 채널 감지
+    file_channel = detect_file_channel(file_path)
 
     cmd = [
         "ffprobe",
@@ -92,6 +102,8 @@ async def get_media_info(file: str):
 
         return {
             "name": file_path.name,
+            "rel_path": str(file_path.relative_to(DOWNLOAD_DIR)),
+            "channel": file_channel,
             "duration": duration,
             "size": int(format_info.get("size", file_path.stat().st_size)),
             "video": {
