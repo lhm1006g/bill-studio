@@ -1,12 +1,20 @@
 import os
 import json
+import shutil
+import tempfile
 import subprocess
 import urllib.parse
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import edge_tts
+from PIL import Image, ImageDraw, ImageFont
 from utils import find_download_file, DOWNLOAD_DIR
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+BGM_DIR = BASE_DIR / "backend" / "assets" / "bgm"
+BGM_DIR.mkdir(parents=True, exist_ok=True)
 
 router = APIRouter(prefix="/api/editor", tags=["editor"])
 
@@ -653,5 +661,373 @@ async def convert_to_shorts(req: ShortsConvertRequest):
         "style": req.style,
         "burned_subtitles": req.burn_subtitles,
     }
+
+
+def get_audio_duration(file_path: Path) -> float:
+    """오디오/비디오 파일의 재생 길이(초) 반환"""
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(file_path),
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return float(res.stdout.strip() or 0.0)
+    except Exception:
+        return 0.0
+
+
+class ExportVideoRequest(BaseModel):
+    file: str
+    burn_subtitles: bool = True
+    caption_position: str = "bottom"  # "bottom" | "center" | "top"
+    audio_mode: str = "original"       # "original" | "tts_dubbed"
+    selected_voice: str | None = "ko-KR-SunHiNeural"
+    tts_rate: str | None = "+10%"
+    selected_bgm: str | None = ""
+    bgm_volume: float = 0.15
+    orig_volume: float = 0.1
+    start_time: float | None = 0.0
+    end_time: float | None = 0.0
+    output_name: str | None = ""
+
+
+@router.post("/export")
+async def export_final_video(req: ExportVideoRequest):
+    """
+    쇼츠(세로 9:16) 변환 없이 원본 화면 비율(16:9 등) 그대로 유지하면서
+    자막 화면 각인(Burn-in) 및 (선택 시) AI 더빙/BGM을 합성하여 최종 완성본 영상으로 출력(Export)
+    """
+    file_path = find_download_file(req.file)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="영상 파일을 찾을 수 없습니다.")
+
+    # 1. 영상 정밀 해상도 및 길이 확인
+    probe_cmd = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height:format=duration",
+        "-of", "json",
+        str(file_path),
+    ]
+    try:
+        p_res = subprocess.run(probe_cmd, capture_output=True, text=True, check=True)
+        info = json.loads(p_res.stdout)
+        streams = info.get("streams", [])
+        width = int(streams[0].get("width", 1920)) if streams else 1920
+        height = int(streams[0].get("height", 1080)) if streams else 1080
+        video_duration = float(info.get("format", {}).get("duration", 0.0) or 60.0)
+    except Exception:
+        width = 1920
+        height = 1080
+        video_duration = 60.0
+
+    # 2. 출력 파일명 결정
+    if req.output_name and req.output_name.strip():
+        out_name = req.output_name.strip()
+        if not out_name.endswith(".mp4"):
+            out_name += ".mp4"
+    else:
+        tags = []
+        if req.burn_subtitles:
+            tags.append("자막각인")
+        if req.audio_mode == "tts_dubbed":
+            tags.append("AI더빙")
+        tag_str = f" [{' + '.join(tags)}]" if tags else " [완성본]"
+        out_name = f"{file_path.stem}{tag_str}.mp4"
+
+    output_path = DOWNLOAD_DIR / out_name
+
+    # 3. 자막 데이터 로드
+    segments = []
+    sub_file = DOWNLOAD_DIR / f"{file_path.stem}.subtitles.json"
+    if not sub_file.exists():
+        sub_file = DOWNLOAD_DIR / f"{file_path.name}.subtitles.json"
+    if sub_file.exists():
+        try:
+            with open(sub_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                segments = data.get("segments", [])
+        except Exception:
+            pass
+
+    # 임시 디렉토리 생성
+    temp_dir = tempfile.mkdtemp(prefix="export_overlay_")
+    try:
+        filter_complex_parts = []
+        extra_inputs = []  # ffmpeg 추가 -i 인수 목록
+        last_v = "[0:v]"
+        input_idx = 1
+
+        offset_time = req.start_time or 0.0
+        clip_duration = (req.end_time - offset_time) if (req.end_time and req.end_time > offset_time) else video_duration
+
+        # 4. 자막 화면 각인(Burn-in) 오버레이 생성
+        if req.burn_subtitles and segments:
+            font_size = max(24, int(height * 0.044))
+            font_sub = get_korean_font(size=font_size)
+            pad_x = max(18, int(width * 0.022))
+            pad_y = max(10, int(height * 0.014))
+
+            # Y 위치 계산
+            if req.caption_position == "top":
+                cy = int(height * 0.14)
+            elif req.caption_position == "center":
+                cy = int(height * 0.50)
+            else:  # 기본 bottom
+                cy = int(height * 0.86)
+
+            valid_segments = []
+            for idx, seg in enumerate(segments):
+                s_start = seg.get("start", 0.0)
+                s_end = seg.get("end", 0.0)
+                text = seg.get("text", "").strip()
+
+                if req.end_time and req.end_time > 0 and s_start >= req.end_time:
+                    continue
+                if s_end <= offset_time:
+                    continue
+                if not text:
+                    continue
+
+                adj_start = max(0.0, round(s_start - offset_time, 2))
+                adj_end = round(s_end - offset_time, 2)
+                if adj_end <= adj_start:
+                    continue
+
+                valid_segments.append((idx, adj_start, adj_end, text))
+
+            # 각 자막 프레임 투명 PNG 생성
+            for idx, adj_start, adj_end, text in valid_segments:
+                bal_text = format_sub_2lines(text, max_chars=28)
+                sub_img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+                draw_s = ImageDraw.Draw(sub_img)
+
+                bbox = draw_s.multiline_textbbox((0, 0), bal_text, font=font_sub, align="center")
+                tw = bbox[2] - bbox[0]
+                th = bbox[3] - bbox[1]
+
+                cx = width // 2
+                box = [
+                    cx - tw // 2 - pad_x,
+                    cy - th // 2 - pad_y,
+                    cx + tw // 2 + pad_x,
+                    cy + th // 2 + pad_y,
+                ]
+
+                # 고시인성 넷플릭스 스타일 라운드 버블 + 테두리 + 드롭섀도우
+                corner_r = max(12, int(height * 0.018))
+                draw_s.rounded_rectangle(
+                    box,
+                    radius=corner_r,
+                    fill=(12, 12, 18, 225),
+                    outline=(255, 255, 255, 60),
+                    width=2,
+                )
+                # 그림자
+                draw_s.multiline_text((cx + 1, cy + 2), bal_text, font=font_sub, fill=(0, 0, 0, 180), anchor="mm", align="center")
+                # 텍스트
+                draw_s.multiline_text((cx, cy), bal_text, font=font_sub, fill=(255, 255, 255, 255), anchor="mm", align="center")
+
+                sub_path = os.path.join(temp_dir, f"sub_{idx:04d}.png")
+                sub_img.save(sub_path)
+                extra_inputs.extend(["-i", sub_path])
+
+                next_v = f"[v_sub_{idx}]"
+                filter_complex_parts.append(
+                    f"{last_v}[{input_idx}:v]overlay=0:0:enable='between(t,{adj_start},{adj_end})'{next_v}"
+                )
+                last_v = next_v
+                input_idx += 1
+
+        # 5. 오디오 처리 (AI 더빙 + BGM 믹싱 vs 원본 오디오)
+        tts_audio_inputs = []
+        has_tts = False
+        has_bgm = False
+
+        if req.audio_mode == "tts_dubbed" and segments:
+            # 선택된 BGM 파일 확인
+            bgm_path = None
+            if req.selected_bgm and req.selected_bgm.strip():
+                cand1 = BGM_DIR / req.selected_bgm
+                cand2 = find_download_file(req.selected_bgm)
+                if cand1.exists():
+                    bgm_path = cand1
+                elif cand2 and cand2.exists():
+                    bgm_path = cand2
+
+            # TTS 음성 생성
+            seg_audio_files = []
+            current_cursor = 0.0
+            voice = req.selected_voice or "ko-KR-SunHiNeural"
+            rate = req.tts_rate or "+10%"
+
+            for idx, seg in enumerate(segments):
+                text = seg.get("text", "").strip()
+                if not text:
+                    continue
+                orig_start = float(seg.get("start", 0.0))
+                if req.end_time and req.end_time > 0 and orig_start >= req.end_time:
+                    continue
+                if orig_start < offset_time:
+                    continue
+
+                seg_file = Path(temp_dir) / f"tts_{idx:04d}.mp3"
+                try:
+                    comm = edge_tts.Communicate(text, voice, rate=rate)
+                    await comm.save(str(seg_file))
+                    audio_dur = get_audio_duration(seg_file)
+                    if audio_dur <= 0:
+                        audio_dur = max(1.0, float(seg.get("end", 0.0)) - orig_start)
+
+                    adj_start = max(0.0, orig_start - offset_time)
+                    actual_start = max(adj_start, current_cursor)
+                    current_cursor = actual_start + audio_dur + 0.05
+
+                    seg_audio_files.append({
+                        "path": seg_file,
+                        "start": round(actual_start, 2),
+                    })
+                except Exception as e:
+                    print(f"TTS export error seg {idx}: {e}")
+
+            if seg_audio_files:
+                has_tts = True
+                tts_start_idx = input_idx
+
+                if bgm_path:
+                    has_bgm = True
+                    extra_inputs.extend(["-i", str(bgm_path)])
+                    bgm_input_idx = input_idx
+                    input_idx += 1
+                    tts_start_idx = input_idx
+
+                for item in seg_audio_files:
+                    extra_inputs.extend(["-i", str(item["path"])])
+                    delay_ms = max(0, int(item["start"] * 1000))
+                    filter_complex_parts.append(f"[{input_idx}:a]adelay={delay_ms}|{delay_ms}[d{input_idx}]")
+                    tts_audio_inputs.append(f"[d{input_idx}]")
+                    input_idx += 1
+
+                # TTS 오디오 스트림 믹싱
+                filter_complex_parts.append(
+                    f"{''.join(tts_audio_inputs)}amix=inputs={len(tts_audio_inputs)}:normalize=0[tts_all]"
+                )
+
+                # 전체 오디오 믹싱
+                mix_parts = []
+                orig_vol = max(0.0, min(1.0, req.orig_volume))
+                filter_complex_parts.append(f"[0:a]volume={orig_vol}[orig_a]")
+                mix_parts.append("[orig_a]")
+
+                if has_bgm:
+                    bgm_vol = max(0.0, min(1.0, req.bgm_volume))
+                    fade_st = max(0.0, clip_duration - 2.5)
+                    filter_complex_parts.append(
+                        f"[{bgm_input_idx}:a]aloop=loop=-1:size=2e+09,volume={bgm_vol},afade=t=out:st={fade_st}:d=2.5[bgm_a]"
+                    )
+                    mix_parts.append("[bgm_a]")
+
+                filter_complex_parts.append("[tts_all]volume=1.0[tts_a]")
+                mix_parts.append("[tts_a]")
+
+                filter_complex_parts.append(
+                    f"{''.join(mix_parts)}amix=inputs={len(mix_parts)}:duration=first:dropout_transition=0[final_a]"
+                )
+
+        # 6. ffmpeg 명령어 빌드
+        cmd = ["ffmpeg", "-y"]
+
+        if req.start_time and req.start_time > 0:
+            cmd.extend(["-ss", str(req.start_time)])
+        if req.end_time and req.end_time > 0 and req.end_time > (req.start_time or 0.0):
+            cmd.extend(["-t", str(req.end_time - (req.start_time or 0.0))])
+
+        cmd.extend(["-i", str(file_path)])
+        cmd.extend(extra_inputs)
+
+        if filter_complex_parts:
+            filter_complex_str = ";".join(filter_complex_parts)
+            cmd.extend(["-filter_complex", filter_complex_str])
+            cmd.extend(["-map", last_v])
+            if has_tts:
+                cmd.extend(["-map", "[final_a]"])
+            else:
+                cmd.extend(["-map", "0:a?"])
+        else:
+            # 필터 없으면 단순 복사
+            cmd.extend(["-map", "0:v", "-map", "0:a?"])
+
+        # 비디오 인코딩: 자막 각인 시 VideoToolbox 가속, 아니면 copy
+        if req.burn_subtitles and segments:
+            cmd.extend([
+                "-c:v", "h264_videotoolbox",
+                "-b:v", "7500k",
+            ])
+        else:
+            cmd.extend(["-c:v", "copy"])
+
+        # 오디오 인코딩: 믹싱 시 aac, 아니면 copy
+        if has_tts:
+            cmd.extend(["-c:a", "aac", "-b:a", "192k"])
+        else:
+            cmd.extend(["-c:a", "copy"])
+
+        cmd.append(str(output_path))
+
+        # 7. 실행 (실패 시 libx264 fallback)
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as e:
+            # VideoToolbox 실패 시 libx264 fallback
+            cmd_fallback = ["ffmpeg", "-y"]
+            if req.start_time and req.start_time > 0:
+                cmd_fallback.extend(["-ss", str(req.start_time)])
+            if req.end_time and req.end_time > 0 and req.end_time > (req.start_time or 0.0):
+                cmd_fallback.extend(["-t", str(req.end_time - (req.start_time or 0.0))])
+
+            cmd_fallback.extend(["-i", str(file_path)])
+            cmd_fallback.extend(extra_inputs)
+            if filter_complex_parts:
+                cmd_fallback.extend(["-filter_complex", ";".join(filter_complex_parts)])
+                cmd_fallback.extend(["-map", last_v])
+                if has_tts:
+                    cmd_fallback.extend(["-map", "[final_a]"])
+                else:
+                    cmd_fallback.extend(["-map", "0:a?"])
+            else:
+                cmd_fallback.extend(["-map", "0:v", "-map", "0:a?"])
+
+            if req.burn_subtitles and segments:
+                cmd_fallback.extend(["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"])
+            else:
+                cmd_fallback.extend(["-c:v", "copy"])
+
+            if has_tts:
+                cmd_fallback.extend(["-c:a", "aac", "-b:a", "192k"])
+            else:
+                cmd_fallback.extend(["-c:a", "copy"])
+
+            cmd_fallback.append(str(output_path))
+            try:
+                subprocess.run(cmd_fallback, capture_output=True, text=True, check=True)
+            except Exception as err:
+                raise HTTPException(status_code=500, detail=f"영상 출력 실패: {str(err)}")
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    return {
+        "status": "success",
+        "message": "최종 완성본 영상 출력 완료!",
+        "output_file": out_name,
+        "output_size": output_path.stat().st_size,
+        "url": f"/api/media/{urllib.parse.quote(out_name)}",
+        "burn_subtitles": req.burn_subtitles,
+        "audio_mode": req.audio_mode,
+        "width": width,
+        "height": height,
+    }
+
 
 

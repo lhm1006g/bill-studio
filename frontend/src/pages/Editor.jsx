@@ -98,6 +98,17 @@ export default function Editor() {
   const [shortsResult, setShortsResult] = useState(null)
   const [shortsError, setShortsError] = useState('')
 
+  // 🎬 최종 영상 출력(Export) 상태
+  const [exportBurnSubs, setExportBurnSubs] = useState(true)
+  const [exportCaptionPos, setExportCaptionPos] = useState('bottom')
+  const [exportAudioMode, setExportAudioMode] = useState('original') // 'original' | 'tts_dubbed'
+  const [exportCustomName, setExportCustomName] = useState('')
+  const [exportStart, setExportStart] = useState(0)
+  const [exportEnd, setExportEnd] = useState(0)
+  const [exporting, setExporting] = useState(false)
+  const [exportResult, setExportResult] = useState(null)
+  const [exportError, setExportError] = useState('')
+
   const activeSegmentRef = useRef(null)
   const scriptListRef = useRef(null)
 
@@ -800,6 +811,9 @@ export default function Editor() {
       if (shortsEnd === 0 || shortsEnd > dur) {
         setShortsEnd(Math.min(dur, 60))
       }
+      if (exportEnd === 0 || exportEnd > dur) {
+        setExportEnd(dur)
+      }
     }
   }
 
@@ -883,6 +897,72 @@ export default function Editor() {
     }
   }
 
+  function setExportStartToCurrent() {
+    if (videoRef.current) {
+      const t = parseFloat(videoRef.current.currentTime.toFixed(1))
+      setExportStart(t)
+      if (t >= exportEnd) {
+        setExportEnd(Math.min(duration, t + 30))
+      }
+    }
+  }
+
+  function setExportEndToCurrent() {
+    if (videoRef.current) {
+      const t = parseFloat(videoRef.current.currentTime.toFixed(1))
+      setExportEnd(t)
+      if (t <= exportStart) {
+        setExportStart(Math.max(0, t - 10))
+      }
+    }
+  }
+
+  async function handleExportVideo() {
+    if (!currentFile) return
+    if (exportEnd > 0 && exportEnd <= exportStart) {
+      alert('종료 시간은 시작 시간보다 커야 합니다.')
+      return
+    }
+
+    setExporting(true)
+    setExportError('')
+    setExportResult(null)
+
+    try {
+      const res = await fetch('/api/editor/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file: currentFile,
+          burn_subtitles: exportBurnSubs,
+          caption_position: exportCaptionPos,
+          audio_mode: exportAudioMode,
+          selected_voice: selectedVoice,
+          tts_rate: ttsRate,
+          selected_bgm: selectedBgm,
+          bgm_volume: bgmVolume,
+          orig_volume: origVolume,
+          start_time: exportStart > 0 ? exportStart : undefined,
+          end_time: (exportEnd > 0 && exportEnd < duration) ? exportEnd : undefined,
+          output_name: exportCustomName.trim() || undefined,
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.detail || '최종 영상 출력에 실패했습니다.')
+      }
+
+      const data = await res.json()
+      setExportResult(data)
+      loadFiles()
+    } catch (e) {
+      setExportError(e.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   async function handleCutVideo() {
     if (!currentFile) return
     if (endTime <= startTime) {
@@ -960,6 +1040,13 @@ export default function Editor() {
               title="자막, 마지막 재생 위치, 성우, 배경음악 등 현재 편집 전체 상황을 저장합니다 (단축키: Cmd+S)"
             >
               {savingProject ? '💾 전체 상황 저장 중...' : '💾 전체 편집 상황 저장'}
+            </button>
+            <button
+              className="btn btn-success btn-sm export-top-btn"
+              onClick={() => setActiveTab('export')}
+              title="쇼츠 변환 없이 16:9 원본 비율 그대로 자막 각인 및 최종 완성본 비디오를 출력합니다"
+            >
+              🎬 최종 완성본 출력 (Export)
             </button>
             <button className="btn btn-secondary btn-sm" onClick={() => setSearchParams({})}>
               📂 다른 영상 선택
@@ -1259,6 +1346,12 @@ export default function Editor() {
                   onClick={() => setActiveTab('shorts')}
                 >
                   📱 쇼츠 9:16 변환 (Shorts)
+                </button>
+                <button
+                  className={`tab-btn ${activeTab === 'export' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('export')}
+                >
+                  🎬 최종 완성본 출력 (Export)
                 </button>
               </div>
 
@@ -2070,6 +2163,221 @@ export default function Editor() {
                           onClick={() => handleSelectFile(shortsResult.output_file)}
                         >
                           🎬 이 쇼츠 파일로 편집기 열기
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 탭 5: 최종 완성본 영상 출력 (Export) 패널 */}
+              {activeTab === 'export' && (
+                <div className="card tool-card export-panel-card">
+                  <div className="tool-title">
+                    <div>
+                      <h3>🎬 일반 가로 영상 최종 완성본 출력 (Export)</h3>
+                      <span className="tool-desc">
+                        쇼츠(9:16) 세로 변환 없이, 원본 화면 비율(16:9)을 그대로 유지하며 편집된 자막 각인 및 오디오 합성을 반영한 완성본 MP4를 제작합니다.
+                      </span>
+                    </div>
+                    <span className="badge badge-accent">Mac 가속 인코딩 지원</span>
+                  </div>
+
+                  {/* 1. 자막 화면 각인 설정 */}
+                  <div className="export-section">
+                    <label className="section-label">1. 자막 화면 영구 각인 (Burn-in) 설정</label>
+                    <div className="export-options-box">
+                      <label className="toggle-label checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={exportBurnSubs}
+                          onChange={(e) => setExportBurnSubs(e.target.checked)}
+                        />
+                        <span>
+                          <strong>화면에 AI 자막 영구 각인 (Burn-in)</strong>
+                          <small style={{ display: 'block', color: 'var(--text-muted)' }}>
+                            넷플릭스 스타일의 라운드 반투명 버블 자막을 영상 자체에 깨끗하게 인코딩합니다. (체크 해제 시 자막 없이 출력)
+                          </small>
+                        </span>
+                      </label>
+
+                      {exportBurnSubs && (
+                        <div className="export-sub-pos-row">
+                          <label className="sub-pos-title">자막 화면 위치:</label>
+                          <div className="btn-group">
+                            <button
+                              type="button"
+                              className={`btn btn-xs ${exportCaptionPos === 'bottom' ? 'btn-primary' : 'btn-secondary'}`}
+                              onClick={() => setExportCaptionPos('bottom')}
+                            >
+                              하단 (기본 추천)
+                            </button>
+                            <button
+                              type="button"
+                              className={`btn btn-xs ${exportCaptionPos === 'center' ? 'btn-primary' : 'btn-secondary'}`}
+                              onClick={() => setExportCaptionPos('center')}
+                            >
+                              중앙
+                            </button>
+                            <button
+                              type="button"
+                              className={`btn btn-xs ${exportCaptionPos === 'top' ? 'btn-primary' : 'btn-secondary'}`}
+                              onClick={() => setExportCaptionPos('top')}
+                            >
+                              상단
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 2. 오디오 믹싱 모드 선택 */}
+                  <div className="export-section">
+                    <label className="section-label">2. 오디오 트랙 믹싱 모드</label>
+                    <div className="export-audio-grid">
+                      <div
+                        className={`export-audio-card ${exportAudioMode === 'original' ? 'selected' : ''}`}
+                        onClick={() => setExportAudioMode('original')}
+                      >
+                        <div className="audio-card-icon">🎵</div>
+                        <div className="audio-card-body">
+                          <strong>원본 소리 그대로 유지 (권장)</strong>
+                          <p>영상의 원래 음성을 그대로 보존하고 자막만 각인하여 깔끔한 완성본을 만듭니다.</p>
+                        </div>
+                        {exportAudioMode === 'original' && <span className="style-check">✔</span>}
+                      </div>
+
+                      <div
+                        className={`export-audio-card ${exportAudioMode === 'tts_dubbed' ? 'selected' : ''}`}
+                        onClick={() => setExportAudioMode('tts_dubbed')}
+                      >
+                        <div className="audio-card-icon">🗣️</div>
+                        <div className="audio-card-body">
+                          <strong>AI 성우 더빙 + BGM 믹싱</strong>
+                          <p>설정한 한국어 AI 성우 목소리와 배경음악({selectedBgm || '선택안됨'}), 원본 배경음을 3채널로 믹싱합니다.</p>
+                        </div>
+                        {exportAudioMode === 'tts_dubbed' && <span className="style-check">✔</span>}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. 구간 자르기 설정 */}
+                  <div className="export-section">
+                    <div className="section-label-row">
+                      <label className="section-label">3. 추출 구간 설정 (선택 사항)</label>
+                      <span className="badge badge-info">
+                        선택 구간 길이: {formatSeconds(Math.max(0, exportEnd - exportStart))}
+                      </span>
+                    </div>
+
+                    <div className="cut-controls">
+                      <div className="time-input-group">
+                        <label>시작 시간</label>
+                        <div className="time-row">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max={duration}
+                            className="input time-input"
+                            value={exportStart}
+                            onChange={(e) => setExportStart(parseFloat(e.target.value) || 0)}
+                          />
+                          <button className="btn btn-secondary btn-sm" onClick={setExportStartToCurrent}>
+                            📍 현재 위치
+                          </button>
+                        </div>
+                        <span className="time-display">{formatSeconds(exportStart)}</span>
+                      </div>
+
+                      <div className="time-input-group">
+                        <label>종료 시간</label>
+                        <div className="time-row">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max={duration}
+                            className="input time-input"
+                            value={exportEnd}
+                            onChange={(e) => setExportEnd(parseFloat(e.target.value) || 0)}
+                          />
+                          <button className="btn btn-secondary btn-sm" onClick={setExportEndToCurrent}>
+                            📍 현재 위치
+                          </button>
+                        </div>
+                        <span className="time-display">{formatSeconds(exportEnd)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 4. 파일명 입력 */}
+                  <div className="export-section">
+                    <label className="section-label">4. 저장할 파일명 (선택 사항)</label>
+                    <input
+                      className="input"
+                      placeholder="비워두면 [자막각인] 또는 [AI더빙] 태그가 자동으로 붙습니다"
+                      value={exportCustomName}
+                      onChange={(e) => setExportCustomName(e.target.value)}
+                    />
+                  </div>
+
+                  {/* 실행 버튼 */}
+                  <div className="export-action-row">
+                    <button
+                      className="btn btn-primary btn-lg export-render-btn"
+                      onClick={handleExportVideo}
+                      disabled={exporting || (exportEnd > 0 && exportEnd <= exportStart)}
+                    >
+                      {exporting ? (
+                        <>
+                          <span className="spinner-inline"></span>
+                          <span>⏳ 16:9 최종 완성본 동영상 렌더링 중...</span>
+                        </>
+                      ) : (
+                        '⚡ 최종 완성본 동영상 렌더링 시작 (Mac 하드웨어 가속)'
+                      )}
+                    </button>
+                  </div>
+
+                  {exportError && <p className="error-msg">❌ {exportError}</p>}
+
+                  {/* 5. 변환 완료 결과 카드 */}
+                  {exportResult && (
+                    <div className="export-result-card">
+                      <div className="export-result-header">
+                        <div className="success-icon">🎉</div>
+                        <div>
+                          <strong style={{ fontSize: '1.15rem' }}>최종 완성본 동영상 출력 완료!</strong>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', margin: '4px 0 0 0' }}>
+                            파일명: <code>{exportResult.output_file}</code> ({formatSize(exportResult.output_size)}) • 해상도: {exportResult.width}×{exportResult.height}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="export-preview-container">
+                        <video
+                          src={exportResult.url}
+                          controls
+                          className="export-preview-player"
+                          playsInline
+                        />
+                      </div>
+
+                      <div className="export-result-actions">
+                        <a
+                          href={exportResult.url}
+                          download={exportResult.output_file}
+                          className="btn btn-primary"
+                        >
+                          ⬇️ 완성본 영상 다운로드
+                        </a>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => handleSelectFile(exportResult.output_file)}
+                        >
+                          🎬 이 완성본 파일로 편집기 열기
                         </button>
                       </div>
                     </div>
