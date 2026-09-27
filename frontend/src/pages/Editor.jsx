@@ -547,16 +547,16 @@ export default function Editor() {
     setIsSubsDirty(true)
   }
 
-  // 연속 대화 자막의 종료 시간을 다음 자막 시작 직전(0.1초 전)으로 스마트 일괄 연결
-  // 단, 음성 간격이 긴 구간(3.5초 초과)은 억지로 늘리지 않고 자막이 제때 떨어지도록 보존
-  function handleSmartBridgeSubtitles(maxGap = 3.5) {
+  // 자막의 종료 시간을 다음 자막 시작 직전(0.1초 전)으로 일괄 연결
+  // 모든 자막이 다음 자막 직전까지 끊김 없이 편안하게 유지되도록 맞춤
+  function handleSmartBridgeSubtitles(maxGap = 45.0) {
     if (subtitles.length === 0) return
     let count = 0
     const updated = subtitles.map((seg, idx) => {
       const next = subtitles[idx + 1]
       if (!next) return seg
       const gap = next.start - seg.end
-      // 간격이 0.05초 이상이고 maxGap(3.5초) 이내인 대화 구간만 다음 자막 직전으로 연결
+      // 간격이 0.05초 이상이고 maxGap(45초) 이내인 경우 다음 자막 직전으로 연결
       if (gap >= 0.05 && gap <= maxGap) {
         const newEnd = Number((next.start - 0.1).toFixed(1))
         if (newEnd > seg.start && newEnd !== seg.end) {
@@ -564,15 +564,14 @@ export default function Editor() {
           return { ...seg, end: newEnd }
         }
       }
-      // 음성 간격이 긴 구간(예: 11.8초 등)은 자막이 제때 떨어져야 하므로 그대로 둠!
       return seg
     })
     if (count > 0) {
       setSubtitles(updated)
       setIsSubsDirty(true)
-      alert(`총 ${count}개의 자막을 다음 자막 직전(0.1초 전)까지 자연스럽게 연결했습니다!\n(음성 간격이 긴 구간은 자막이 정상적으로 떨어지도록 보존되었습니다.)`)
+      alert(`총 ${count}개의 자막을 다음 자막 직전(0.1초 전)까지 편안하게 연결했습니다!`)
     } else {
-      alert('연결할 수 있는 연속 자막(간격 3.5초 이내)이 이미 최적화되어 있습니다.')
+      alert('이미 모든 자막이 다음 자막 직전까지 맞춰져 있습니다.')
     }
   }
 
@@ -679,31 +678,23 @@ export default function Editor() {
     }
   }
 
-  // 현재 시간에 일치하는 자막 세그먼트
-  // - smart 모드: 대화가 연속될 때(간격 3.5초 이내) 다음 자막 나오기 직전까지 유지하여 금방 꺼지지 않음
-  //               단, 음성 간격이 길 때(3.5초 초과)는 다음 자막까지 유지되지 않고 제때 떨어져 화면을 비움
-  // - exact 모드: 자막의 end 시간에 즉시 퇴장
+  // 현재 시간에 일치하는 자막 세그먼트:
+  // 자막이 나왔다가 금방 사라지지 않고, 다음 자막이 나오기 직전까지 끊김 없이 화면에 유지됨
   const activeSegment = subtitles.find((s, idx) => {
     if (currentTime < s.start) return false
 
-    if (subFlowMode === 'smart') {
-      const next = subtitles[idx + 1]
-      if (next) {
-        const gap = next.start - s.end
-        if (gap > 0 && gap <= 3.5) {
-          // 연속 대화 구간: 다음 자막 나오기 직전(0.08초 전)에 자연스럽게 사라짐/교체
-          return currentTime < (next.start - 0.08)
-        } else if (gap > 3.5) {
-          // 음성 간격이 긴 구간(예: 11.8초 등): 자막이 계속 떠있지 않고 제때 떨어짐!
-          return currentTime <= (s.end + 0.5)
-        } else {
-          return currentTime <= Math.max(s.end, next.start - 0.08)
-        }
-      } else {
-        return currentTime <= (s.end + 0.8)
+    const next = subtitles[idx + 1]
+    if (next) {
+      // 다음 자막이 시작되기 직전(0.08초 전)까지 계속 화면에 유지!
+      // (단, 대화 사이 간격이 45초 이상 비어있는 극단적인 경우에만 15초 후 퇴장)
+      const gap = next.start - s.end
+      if (gap > 45.0) {
+        return currentTime <= Math.max(s.end + 10.0, s.start + 12.0)
       }
+      return currentTime < (next.start - 0.08)
     } else {
-      return currentTime <= s.end
+      // 마지막 자막은 끝난 후 4초간 여유 있게 유지
+      return currentTime <= (s.end + 4.0)
     }
   })
 
