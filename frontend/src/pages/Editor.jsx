@@ -64,6 +64,8 @@ export default function Editor() {
   const [savingSubs, setSavingSubs] = useState(false)
   const [subsSavedNotice, setSubsSavedNotice] = useState(false)
   const [isSubsDirty, setIsSubsDirty] = useState(false)
+  const [savingProject, setSavingProject] = useState(false)
+  const [projectLoadedNotice, setProjectLoadedNotice] = useState('')
   const [activeTab, setActiveTab] = useState('subtitle') // 'subtitle' | 'tts' | 'cut'
   const [converting, setConverting] = useState(false)
 
@@ -166,6 +168,7 @@ export default function Editor() {
     if (currentFile) {
       loadMediaInfo(currentFile)
       loadExistingSubtitles(currentFile)
+      loadEditorProject(currentFile)
       setDubResult(null)
       setDubError('')
     } else {
@@ -175,6 +178,18 @@ export default function Editor() {
       setDubResult(null)
     }
   }, [currentFile])
+
+  // 단축키 Cmd+S / Ctrl+S 로 언제든 전체 편집 상황 즉시 저장
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        handleSaveProject()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [currentFile, subtitles, currentTime, activeTab, selectedVoice, selectedBgm, bgmVolume, origVolume, captionPos, maxDisplaySec])
 
   async function loadFiles() {
     setLoadingFiles(true)
@@ -332,6 +347,44 @@ export default function Editor() {
     }
   }
 
+  // 이전에 저장된 편집 프로젝트 상황 불러오기
+  async function loadEditorProject(filename) {
+    try {
+      const res = await fetch(`/api/editor/project/load?file=${encodeURIComponent(filename)}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.has_project && data.project) {
+          const p = data.project
+          if (p.captionPos) setCaptionPos(p.captionPos)
+          if (p.maxDisplaySec !== undefined) setMaxDisplaySec(p.maxDisplaySec)
+          if (p.showScreenOverlay !== undefined) setShowScreenOverlay(p.showScreenOverlay)
+          if (p.showSubtitles !== undefined) setShowSubtitles(p.showSubtitles)
+          if (p.selectedVoice) setSelectedVoice(p.selectedVoice)
+          if (p.ttsRate) setTtsRate(p.ttsRate)
+          if (p.origVolume !== undefined) setOrigVolume(p.origVolume)
+          if (p.selectedBgm !== undefined) setSelectedBgm(p.selectedBgm)
+          if (p.bgmVolume !== undefined) setBgmVolume(p.bgmVolume)
+          if (p.startTime !== undefined) setStartTime(p.startTime)
+          if (p.endTime) setEndTime(p.endTime)
+          if (p.customOutName) setCustomOutName(p.customOutName)
+          if (p.activeTab) setActiveTab(p.activeTab)
+          if (p.currentTime > 0) {
+            setCurrentTime(p.currentTime)
+            setTimeout(() => {
+              if (videoRef.current) {
+                videoRef.current.currentTime = p.currentTime
+              }
+            }, 400)
+          }
+          setProjectLoadedNotice(`📂 이전에 저장된 편집 작업이 복원되었습니다! (저장 시점: ${p.saved_at}, 마지막 위치: ${formatSeconds(p.currentTime || 0)})`)
+          setTimeout(() => setProjectLoadedNotice(''), 7000)
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   // AI 자막 추출 실행
   async function handleExtractSubtitles() {
     if (!currentFile) return
@@ -423,6 +476,54 @@ export default function Editor() {
       alert('자막 저장 실패: ' + e.message)
     } finally {
       setSavingSubs(false)
+    }
+  }
+
+  // 현재 동영상 편집의 전체 상태(자막, 성우, BGM, 볼륨, 마지막 재생 위치 등) 일괄 저장
+  async function handleSaveProject() {
+    if (!currentFile) return
+    setSavingProject(true)
+    try {
+      const curTime = videoRef.current ? Number(videoRef.current.currentTime.toFixed(1)) : currentTime
+      const res = await fetch('/api/editor/project/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file: currentFile,
+          currentTime: curTime,
+          activeTab,
+          subtitles,
+          captionPos,
+          showScreenOverlay,
+          maxDisplaySec,
+          showSubtitles,
+          selectedVoice,
+          ttsRate,
+          origVolume,
+          selectedBgm,
+          bgmVolume,
+          startTime,
+          endTime,
+          customOutName,
+        }),
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        setIsSubsDirty(false)
+        setSubsSavedNotice(true)
+        setTimeout(() => setSubsSavedNotice(false), 3000)
+        setProjectLoadedNotice(`✅ 전체 편집 상황 저장 완료! (${data.saved_at})`)
+        setTimeout(() => setProjectLoadedNotice(''), 5000)
+        alert(`💾 [동영상 편집 전체 상황 저장 완료]\n\n• 저장 시각: ${data.saved_at}\n• 마지막 위치: ${formatSeconds(curTime)}\n• 자막: ${subtitles.length}개 문장 동기화 저장\n• AI 설정: 성우(${selectedVoice}), BGM(${selectedBgm || '없음'})\n\n다음에 이 영상을 다시 열면 현재 편집 상태가 그대로 복원됩니다!`)
+      } else {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || '편집 상황 저장에 실패했습니다.')
+      }
+    } catch (e) {
+      alert('저장 실패: ' + e.message)
+    } finally {
+      setSavingProject(false)
     }
   }
 
@@ -769,12 +870,27 @@ export default function Editor() {
         </button>
         {currentFile && (
           <div className="topbar-actions">
+            <button
+              className="btn btn-primary btn-sm save-project-top-btn"
+              onClick={handleSaveProject}
+              disabled={savingProject}
+              title="자막, 마지막 재생 위치, 성우, 배경음악 등 현재 편집 전체 상황을 저장합니다 (단축키: Cmd+S)"
+            >
+              {savingProject ? '💾 전체 상황 저장 중...' : '💾 전체 편집 상황 저장'}
+            </button>
             <button className="btn btn-secondary btn-sm" onClick={() => setSearchParams({})}>
               📂 다른 영상 선택
             </button>
           </div>
         )}
       </div>
+
+      {projectLoadedNotice && (
+        <div className="project-notice-banner">
+          <span>{projectLoadedNotice}</span>
+          <button className="banner-close-btn" onClick={() => setProjectLoadedNotice('')}>✕</button>
+        </div>
+      )}
 
       {!currentFile ? (
         /* 파일 선택 화면 */
@@ -1150,10 +1266,11 @@ export default function Editor() {
                           </button>
                           <button
                             className={`btn btn-sm ${isSubsDirty ? 'btn-primary pulse-save-btn' : 'btn-secondary'}`}
-                            onClick={handleSaveSubtitles}
-                            disabled={savingSubs}
+                            onClick={handleSaveProject}
+                            disabled={savingProject}
+                            title="자막뿐만 아니라 현재 재생 위치, 성우, 배경음악 설정 등 전체 편집 상황을 함께 저장합니다"
                           >
-                            {savingSubs ? '💾 저장 중...' : isSubsDirty ? '💾 자막 저장 (저장 필요)' : '💾 자막 저장됨'}
+                            {savingProject ? '💾 전체 상황 저장 중...' : isSubsDirty ? '💾 전체 상황 저장 (저장 필요)' : '💾 전체 상황 저장됨'}
                           </button>
                           <a
                             className="btn btn-secondary btn-sm"

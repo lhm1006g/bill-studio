@@ -278,3 +278,98 @@ async def cut_video(req: CutRequest):
             }
         except Exception as err:
             raise HTTPException(status_code=500, detail=f"영상 자르기 실패: {str(err)}")
+
+
+# ── 💾 동영상 편집 프로젝트 전체 상태 저장 및 복원 ──
+import datetime
+
+class ProjectSaveRequest(BaseModel):
+    file: str
+    currentTime: float | None = 0.0
+    activeTab: str | None = "subtitle"
+    subtitles: list[dict] | None = None
+    captionPos: str | None = "bottom"
+    showScreenOverlay: bool | None = True
+    maxDisplaySec: float | None = 4.0
+    showSubtitles: bool | None = True
+    selectedVoice: str | None = "ko-KR-SunHiNeural"
+    ttsRate: str | None = "+10%"
+    origVolume: float | None = 0.1
+    selectedBgm: str | None = ""
+    bgmVolume: float | None = 0.15
+    startTime: float | None = 0.0
+    endTime: float | None = 0.0
+    customOutName: str | None = ""
+
+
+@router.post("/project/save")
+async def save_editor_project(req: ProjectSaveRequest):
+    """현재 동영상 편집의 전체 상태(자막, 성우, BGM, 볼륨, 재생 위치, 설정)를 프로젝트 파일로 저장"""
+    file_path = find_download_file(req.file)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="영상 파일을 찾을 수 없습니다.")
+
+    project_path = DOWNLOAD_DIR / f"{file_path.stem}.project.json"
+    now_iso = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    project_data = {
+        "file": file_path.name,
+        "saved_at": now_iso,
+        "currentTime": req.currentTime or 0.0,
+        "activeTab": req.activeTab or "subtitle",
+        "captionPos": req.captionPos or "bottom",
+        "showScreenOverlay": req.showScreenOverlay if req.showScreenOverlay is not None else True,
+        "maxDisplaySec": req.maxDisplaySec if req.maxDisplaySec is not None else 4.0,
+        "showSubtitles": req.showSubtitles if req.showSubtitles is not None else True,
+        "selectedVoice": req.selectedVoice or "ko-KR-SunHiNeural",
+        "ttsRate": req.ttsRate or "+10%",
+        "origVolume": req.origVolume if req.origVolume is not None else 0.1,
+        "selectedBgm": req.selectedBgm or "",
+        "bgmVolume": req.bgmVolume if req.bgmVolume is not None else 0.15,
+        "startTime": req.startTime or 0.0,
+        "endTime": req.endTime or 0.0,
+        "customOutName": req.customOutName or "",
+        "subtitles_count": len(req.subtitles) if req.subtitles else 0,
+    }
+
+    # 프로젝트 파일 저장
+    with open(project_path, "w", encoding="utf-8") as f:
+        json.dump(project_data, f, ensure_ascii=False, indent=2)
+
+    # 자막 데이터도 동기화 저장
+    if req.subtitles:
+        json_path = DOWNLOAD_DIR / f"{file_path.stem}.subtitles.json"
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "file": file_path.name,
+                "segments": req.subtitles,
+            }, f, ensure_ascii=False, indent=2)
+
+    return {
+        "status": "success",
+        "message": "동영상 편집 전체 작업 상황이 성공적으로 저장되었습니다.",
+        "saved_at": now_iso,
+    }
+
+
+@router.get("/project/load")
+async def load_editor_project(file: str):
+    """저장된 동영상 편집 프로젝트 상태 불러오기"""
+    file_path = find_download_file(file)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="영상 파일을 찾을 수 없습니다.")
+
+    project_path = DOWNLOAD_DIR / f"{file_path.stem}.project.json"
+    if not project_path.exists():
+        return {"has_project": False}
+
+    try:
+        with open(project_path, "r", encoding="utf-8") as f:
+            project_data = json.load(f)
+        return {
+            "has_project": True,
+            "project": project_data,
+        }
+    except Exception as e:
+        return {"has_project": False, "error": str(e)}
+

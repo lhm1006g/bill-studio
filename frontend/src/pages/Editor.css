@@ -11,6 +11,58 @@
   align-items: center;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.save-project-top-btn {
+  background: linear-gradient(135deg, #7c5cfc, #4f46e5);
+  box-shadow: 0 2px 10px rgba(124, 92, 252, 0.35);
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.save-project-top-btn:hover {
+  background: linear-gradient(135deg, #8b6eff, #6366f1);
+  box-shadow: 0 4px 14px rgba(124, 92, 252, 0.5);
+  transform: translateY(-1px);
+}
+
+.project-notice-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  animation: slideDown 0.25s ease-out;
+}
+
+.banner-close-btn {
+  background: none;
+  border: none;
+  color: #34d399;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+  opacity: 0.7;
+}
+
+.banner-close-btn:hover {
+  opacity: 1;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* ── 파일 선택 화면 ── */
 .file-picker-card {
   display: flex;
