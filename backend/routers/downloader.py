@@ -103,7 +103,7 @@ CHANNEL_LABELS = {
     "sports": "⚡ 스포츠 명장면",
     "animals": "🐾 동물 힐링",
     "tech": "🧠 미래 테크 & AI",
-    "rescene": "🌸 리센느 & K-POP",
+    "rescene": "🌸 리센느",
 }
 
 

@@ -16,7 +16,7 @@ const STUDIO_CHANNELS = [
   { id: 'sports', name: '⚡ 스포츠 명장면 & 리스펙트', query: '스포츠 명장면 쇼츠', desc: '페어플레이, 역전극, 매너 순간', color: '#f59e0b' },
   { id: 'animals', name: '🐾 동물 구조 & 힐링', query: '귀여운 동물 감동 쇼츠', desc: '유기견 구조, 감동 교감', color: '#10b981' },
   { id: 'tech', name: '🧠 미래 테크 & 글로벌 머니', query: '반도체 AI 엔비디아 뉴스', desc: 'AI, 빅테크 혁신 데모', color: '#a855f7' },
-  { id: 'rescene', name: '🌸 리센느 & K-POP', query: '리센느 직캠 쇼츠', desc: '무대 교차편집, 직캠 명장면, 챌린지', color: '#ec4899' },
+  { id: 'rescene', name: '🌸 리센느', query: '리센느 직캠 쇼츠', desc: '리센느 무대 교차편집, 멤버별 직캠, 쇼츠 챌린지', color: '#ec4899' },
 ]
 
 export default function Research() {

@@ -76,7 +76,7 @@ const CHANNEL_PRESETS = {
   },
   rescene: {
     id: 'rescene',
-    name: '🌸 리센느 & K-POP',
+    name: '🌸 리센느',
     voice: 'ko-KR-SunHiNeural',
     voiceName: '선희 (발랄 감성 여성)',
     rate: '+5%',

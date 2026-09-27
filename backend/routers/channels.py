@@ -88,11 +88,11 @@ STUDIO_CHANNELS = [
     },
     {
         "id": "rescene",
-        "name": "🌸 리센느 & K-POP",
+        "name": "리센느 (RESCENE)",
         "icon": "🌸",
         "color": "#ec4899",
         "folder": "rescene",
-        "description": "리센느(RESCENE) 무대 교차편집, 직캠 명장면, 킬링파트 챌린지 쇼츠",
+        "description": "리센느(RESCENE) 무대 교차편집, 멤버별 직캠 명장면, 킬링파트 챌린지 쇼츠",
         "query": "리센느 직캠 쇼츠",
         "en_query": "RESCENE fancam stage shorts challenge",
         "voice": "ko-KR-SunHiNeural",

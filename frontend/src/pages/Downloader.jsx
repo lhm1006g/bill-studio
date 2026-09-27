@@ -30,7 +30,7 @@ const CHANNELS_CONFIG = [
   { id: 'sports', name: '⚡ 스포츠 명장면', color: '#f59e0b' },
   { id: 'animals', name: '🐾 동물 힐링', color: '#10b981' },
   { id: 'tech', name: '🧠 미래 테크 & AI', color: '#a855f7' },
-  { id: 'rescene', name: '🌸 리센느 & K-POP', color: '#ec4899' },
+  { id: 'rescene', name: '🌸 리센느', color: '#ec4899' },
 ]
 
 export default function Downloader() {
