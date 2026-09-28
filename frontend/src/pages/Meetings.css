@@ -198,9 +198,10 @@
 
 .calendar-weekdays-row {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   background: rgba(30, 41, 59, 0.5);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  width: 100%;
 }
 
 .weekday-col {
@@ -210,6 +211,10 @@
   font-weight: 700;
   color: #94a3b8;
   text-transform: uppercase;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .weekday-col.sunday {
@@ -222,9 +227,10 @@
 
 .calendar-days-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   grid-auto-rows: minmax(130px, 1fr);
   border-collapse: collapse;
+  width: 100%;
 }
 
 .day-cell {
@@ -235,6 +241,9 @@
   flex-direction: column;
   gap: 0.4rem;
   min-height: 130px;
+  min-width: 0;
+  overflow: hidden;
+  box-sizing: border-box;
   transition: background 0.15s ease;
   position: relative;
   cursor: pointer;
@@ -312,7 +321,10 @@
   flex-direction: column;
   gap: 0.35rem;
   overflow-y: auto;
+  overflow-x: hidden;
   max-height: 100px;
+  min-width: 0;
+  width: 100%;
 }
 
 .meeting-pill {
@@ -328,6 +340,10 @@
   text-align: left;
   transition: all 0.15s;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .meeting-pill:hover {
@@ -338,12 +354,26 @@
 
 .pill-title {
   font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   display: flex;
   align-items: center;
   gap: 0.3rem;
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+.pill-icon {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+}
+
+.pill-title-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
 }
 
 .pill-meta {
@@ -351,6 +381,8 @@
   color: #93c5fd;
   display: flex;
   justify-content: space-between;
+  min-width: 0;
+  width: 100%;
 }
 
 /* ─── 목록 뷰 (타임라인 리스트) ──────────────────────────────────── */
@@ -1532,6 +1564,10 @@
   flex-direction: column;
   gap: 0.3rem;
   margin-bottom: 0.4rem;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .unregistered-pill:hover {
@@ -1547,6 +1583,17 @@
   gap: 0.35rem;
   font-size: 0.82rem;
   color: #fef3c7;
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+.unreg-time-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .unreg-pulse-icon {

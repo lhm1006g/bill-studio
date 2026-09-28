@@ -879,7 +879,8 @@ function Meetings() {
                         }}
                       >
                         <div className="pill-title">
-                          <span>🎙️</span> {m.title}
+                          <span className="pill-icon">🎙️</span>
+                          <span className="pill-title-text">{m.title}</span>
                         </div>
                         <div className="pill-meta">
                           <span>{m.start_time || '회의'}</span>
