@@ -534,6 +534,13 @@ async def resummarize_meeting(meeting_id: str, body: Optional[ResummarizeRequest
     conn.commit()
     conn.close()
 
+    # 액션 아이템 중 날짜가 있는 일정을 컴짱 캘린더에 자동 동기화
+    synced_count = 0
+    try:
+        synced_count = sync_action_items_to_schedule(meeting_id, action_items, final_title)
+    except Exception as e:
+        print(f"[Meeting] 일정 자동 동기화 예외: {e}")
+
     return {
         "ok": True,
         "meeting_id": meeting_id,
@@ -541,6 +548,26 @@ async def resummarize_meeting(meeting_id: str, body: Optional[ResummarizeRequest
         "summary": summary_text,
         "action_items": action_items,
         "tags": tags,
+        "synced_schedules": synced_count,
+    }
+
+
+@router.post("/{meeting_id}/sync-schedules")
+def sync_meeting_schedules(meeting_id: str):
+    """해당 회의의 액션 아이템들을 컴짱 캘린더로 수동 동기화"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT title, action_items FROM meetings WHERE id = ?", (meeting_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="회의를 찾을 수 없습니다.")
+
+    items = json.loads(row["action_items"]) if row["action_items"] else []
+    synced = sync_action_items_to_schedule(meeting_id, items, row["title"])
+    return {
+        "ok": True,
+        "synced_count": synced,
+        "message": f"{synced}개의 일정이 '💻 컴짱 회의' 캘린더에 동기화되었습니다!"
     }
 
 
@@ -577,7 +604,9 @@ async def execute_ai_summary(
 1. **회의록 요약 내용의 순서는 반드시 실제 녹음이 진행된 시간 순서(타임라인 순서)와 100% 일치해야 합니다.**
 2. 시간 순서를 절대 임의로 재배치하거나 뒤섞지 마세요. 회의 시작 시점 ➔ 전개/중반부 ➔ 후반/마무리 시점의 흐름을 그대로 따라가야 합니다.
 3. '주요 논의 사항'에서는 각 안건/주제 블록마다 해당 발언이 나온 **타임코드 구간(예: [00:00 ~ 05:20], [05:21 ~ 13:40])**을 제목 앞에 반드시 기재하여, 회의 음성/영상과 1:1로 정확히 동기화되도록 작성하세요.
+3. '주요 논의 사항'은 절대 줄글로 뭉뚱그리지 말고, 녹음에서 실제로 발언된 **타임코드 순서(초반 -> 중반 -> 후반)**대로 안건 블록을 나누어 작성하세요.
 4. '핵심 요약' 역시 회의 전반부 ➔ 중반부 ➔ 후반부의 진행 흐름 순서대로 3줄로 작성하세요.
+5. 대화 중 언급된 마감 일정, 후속 미팅, 릴리즈/작업 완료 예정일 등 일정이 있다면 회의 날짜(기준일: {meeting_date})를 고려하여 기한을 가능한 'YYYY-MM-DD' 형식으로 구체적으로 명시해주세요 (예: '다음 주 수요일' ➔ 기준일로부터 계산된 YYYY-MM-DD).
 
 [작성 지침 및 필수 마크다운 출력 형식]
 반드시 아래의 마크다운 형식으로 작성해주세요:
@@ -701,6 +730,85 @@ async def execute_ai_summary(
         })
 
     return summary_text, final_title, action_items, tags
+
+
+def sync_action_items_to_schedule(meeting_id: str, action_items: list, meeting_title: str) -> int:
+    """회의 액션 아이템 중 날짜가 있는 항목을 '💻 컴짱 회의' 캘린더에 자동 등록"""
+    from models.database import SessionLocal
+    from models.schedule_model import ScheduleEvent
+    from routers.schedule import get_calendar_service, get_or_create_comjjang_calendar
+
+    db = SessionLocal()
+    added_count = 0
+    try:
+        service = get_calendar_service()
+        comjjang_cal_id = get_or_create_comjjang_calendar(service) if service else "comjjang"
+
+        for item in action_items:
+            task = item.get("task", "").strip()
+            due_date = item.get("due_date", "").strip()
+            assignee = item.get("assignee", "").strip()
+            if not task or not due_date:
+                continue
+
+            # 날짜 정규식 검사 (YYYY-MM-DD 형태 추출)
+            date_match = re.search(r"(\d{4}-\d{2}-\d{2})", due_date)
+            if not date_match:
+                continue
+            date_str = date_match.group(1)
+
+            # 이미 같은 회의 및 태스크로 등록된 일정이 있는지 체크
+            search_key = task[:15] if len(task) >= 15 else task
+            existing = db.query(ScheduleEvent).filter(
+                ScheduleEvent.meeting_id == meeting_id,
+                ScheduleEvent.title.contains(search_key)
+            ).first()
+            if existing:
+                continue
+
+            cal_title = f"[컴짱] {task}"
+            cal_desc = f"📌 회의: {meeting_title}\n👤 담당자: {assignee or '미지정'}\n🎯 할 일: {task}\n(컴짱 회의록에서 자동 생성된 일정)"
+
+            google_event_id = None
+            if service and comjjang_cal_id and comjjang_cal_id != "comjjang":
+                try:
+                    g_body = {
+                        "summary": cal_title,
+                        "description": cal_desc,
+                        "colorId": "7",  # 공작 / 스카이블루
+                        "start": {"date": date_str},
+                        "end": {"date": date_str},
+                    }
+                    created_g = service.events().insert(calendarId=comjjang_cal_id, body=g_body).execute()
+                    google_event_id = created_g.get("id")
+                except Exception as e:
+                    print(f"[Meeting -> Schedule] 구글 컴짱 캘린더 등록 실패: {e}")
+
+            new_event = ScheduleEvent(
+                google_event_id=google_event_id,
+                calendar_id=comjjang_cal_id,
+                title=cal_title,
+                description=cal_desc,
+                start_time=date_str,
+                end_time=date_str,
+                all_day=True,
+                is_routine=False,
+                is_comjjang=True,
+                meeting_id=meeting_id,
+                color_id="7",
+                location="",
+                source="google" if google_event_id else "local",
+            )
+            db.add(new_event)
+            added_count += 1
+
+        db.commit()
+    except Exception as e:
+        print(f"[Meeting -> Schedule] 일정 자동 동기화 에러: {e}")
+        db.rollback()
+    finally:
+        db.close()
+    return added_count
 
 
 # ─── AI 회의록 처리 핵심 파이프라인 (공통 함수) ─────────────────────────────
@@ -828,6 +936,14 @@ async def execute_meeting_pipeline(
     conn.commit()
     conn.close()
 
+    # 4. 액션 아이템 중 기한이 있는 항목을 '컴짱 캘린더'에 자동 등록
+    synced_schedules = 0
+    try:
+        synced_schedules = sync_action_items_to_schedule(meeting_id, action_items, final_title)
+        print(f"[Meeting] 회의 '{final_title}'에서 {synced_schedules}개 일정 자동 등록 완료")
+    except Exception as e:
+        print(f"[Meeting Pipeline] 일정 동기화 오류: {e}")
+
     return {
         "meeting_id": meeting_id,
         "title": final_title,
@@ -835,6 +951,7 @@ async def execute_meeting_pipeline(
         "start_time": start_time,
         "duration_sec": duration_sec,
         "action_item_count": len(action_items),
+        "synced_schedules": synced_schedules,
         "audio_file": rel_audio,
     }
 

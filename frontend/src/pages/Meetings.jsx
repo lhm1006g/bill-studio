@@ -405,6 +405,29 @@ function Meetings() {
     }
   }
 
+  // 회의 액션 아이템을 컴짱 캘린더에 동기화
+  const [isSyncingSchedule, setIsSyncingSchedule] = useState(false)
+  const handleSyncToCalendar = async () => {
+    if (!selectedMeeting) return
+    setIsSyncingSchedule(true)
+    try {
+      const res = await fetch(`${API_BASE}/${selectedMeeting.id}/sync-schedules`, {
+        method: 'POST'
+      })
+      const data = await res.json()
+      if (res.ok && data.ok) {
+        alert(`🎉 ${data.message || '일정이 컴짱 캘린더에 성공적으로 동기화되었습니다!'}`)
+      } else {
+        alert(data.detail || '캘린더 동기화에 실패했습니다.')
+      }
+    } catch (e) {
+      console.error(e)
+      alert('일정 동기화 중 오류가 발생했습니다.')
+    } finally {
+      setIsSyncingSchedule(false)
+    }
+  }
+
   // 파일 업로드 핸들러
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0]
@@ -1602,31 +1625,52 @@ function Meetings() {
               {/* 탭 2: 액션 아이템 체크리스트 */}
               {detailTab === 'actions' && (
                 <div className="action-items-checklist">
+                  <div className="action-items-header-bar">
+                    <span className="action-header-info">
+                      💡 날짜(기한)가 있는 할 일은 <b>'💻 컴짱 회의' 캘린더</b>에 자동 동기화됩니다.
+                    </span>
+                    <button
+                      type="button"
+                      className="btn-sync-calendar"
+                      onClick={handleSyncToCalendar}
+                      disabled={isSyncingSchedule}
+                    >
+                      {isSyncingSchedule ? '⏳ 캘린더 동기화 중...' : '📅 컴짱 캘린더에 일정 동기화'}
+                    </button>
+                  </div>
+
                   {(!selectedMeeting.action_items || selectedMeeting.action_items.length === 0) ? (
                     <div className="empty-state">
                       <span>✅</span>
                       <p>추출된 액션 아이템이 없습니다.</p>
                     </div>
                   ) : (
-                    selectedMeeting.action_items.map(item => (
-                      <div
-                        key={item.id}
-                        className={`action-item-row ${item.done ? 'done' : ''}`}
-                        onClick={() => handleToggleAction(item.id, item.done)}
-                      >
-                        <input
-                          type="checkbox"
-                          className="action-checkbox"
-                          checked={item.done}
-                          onChange={() => {}} // 부모 div 클릭으로 처리
-                        />
-                        <span className="action-text">{item.task}</span>
-                        <div className="action-meta-box">
-                          {item.assignee && <span className="assignee-badge">👤 {item.assignee}</span>}
-                          {item.due_date && <span className="due-badge">📅 {item.due_date}</span>}
+                    selectedMeeting.action_items.map(item => {
+                      const hasValidDate = item.due_date && /\d{4}-\d{2}-\d{2}/.test(item.due_date)
+                      return (
+                        <div
+                          key={item.id}
+                          className={`action-item-row ${item.done ? 'done' : ''}`}
+                          onClick={() => handleToggleAction(item.id, item.done)}
+                        >
+                          <input
+                            type="checkbox"
+                            className="action-checkbox"
+                            checked={item.done}
+                            onChange={() => {}} // 부모 div 클릭으로 처리
+                          />
+                          <span className="action-text">{item.task}</span>
+                          <div className="action-meta-box">
+                            {item.assignee && <span className="assignee-badge">👤 {item.assignee}</span>}
+                            {item.due_date && (
+                              <span className={`due-badge ${hasValidDate ? 'calendar-linked' : ''}`} title={hasValidDate ? '컴짱 캘린더 일정으로 등록됨' : ''}>
+                                📅 {item.due_date} {hasValidDate && '• 캘린더'}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      )
+                    })
                   )}
                 </div>
               )}

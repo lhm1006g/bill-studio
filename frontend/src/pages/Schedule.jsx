@@ -5,12 +5,13 @@ const API_BASE = 'http://localhost:8000/api/schedule'
 
 // 스튜디오 특화 프리셋 템플릿
 const PRESETS = [
-  { label: '🎬 영상 업로드', colorId: '11', color: '#ef4444', defaultDesc: '유튜브 채널에 최종 완성본 영상 업로드 및 공개', isRoutine: false },
-  { label: '✂️ 영상 편집 마감', colorId: '3', color: '#a855f7', defaultDesc: '컷 편집 및 자막 싱크 완료', isRoutine: false },
-  { label: '💡 콘텐츠 기획 & 대본', colorId: '2', color: '#10b981', defaultDesc: '새 영상 주제 선정 및 스크립트 작성', isRoutine: false },
-  { label: '🎙️ AI 성우 더빙/녹음', colorId: '6', color: '#f97316', defaultDesc: 'AI 목소리 더빙 렌더링 및 BGM 믹싱', isRoutine: false },
-  { label: '🚲 자전거 / 운동 루틴', colorId: '5', color: '#eab308', defaultDesc: '매일 저녁 유산소 자전거 타기 및 건강 관리', isRoutine: true },
-  { label: '📌 중요 일정', colorId: '9', color: '#3b82f6', defaultDesc: '', isRoutine: false },
+  { label: '💻 컴짱 회의 업무', colorId: '7', color: '#039be5', defaultDesc: '컴짱 회의에서 도출된 마감 및 실행 업무', isRoutine: false, isComjjang: true },
+  { label: '🎬 영상 업로드', colorId: '11', color: '#ef4444', defaultDesc: '유튜브 채널에 최종 완성본 영상 업로드 및 공개', isRoutine: false, isComjjang: false },
+  { label: '✂️ 영상 편집 마감', colorId: '3', color: '#a855f7', defaultDesc: '컷 편집 및 자막 싱크 완료', isRoutine: false, isComjjang: false },
+  { label: '💡 콘텐츠 기획 & 대본', colorId: '2', color: '#10b981', defaultDesc: '새 영상 주제 선정 및 스크립트 작성', isRoutine: false, isComjjang: false },
+  { label: '🎙️ AI 성우 더빙/녹음', colorId: '6', color: '#f97316', defaultDesc: 'AI 목소리 더빙 렌더링 및 BGM 믹싱', isRoutine: false, isComjjang: false },
+  { label: '🚲 자전거 / 운동 루틴', colorId: '5', color: '#eab308', defaultDesc: '매일 저녁 유산소 자전거 타기 및 건강 관리', isRoutine: true, isComjjang: false },
+  { label: '📌 중요 일정', colorId: '9', color: '#3b82f6', defaultDesc: '', isRoutine: false, isComjjang: false },
 ]
 
 // 구글 캘린더 색상 팔레트 매핑
@@ -21,7 +22,7 @@ const GOOGLE_COLORS = {
   '4': '#e67c73',  // 플라밍고
   '5': '#f6bf26',  // 바나나/노랑
   '6': '#f4511e',  // 귤/주황
-  '7': '#039be5',  // 공작/파랑
+  '7': '#039be5',  // 공작/파랑 (컴짱 기본)
   '8': '#616161',  // 흑연
   '9': '#3f51b5',  // 블루베리
   '10': '#0b8043', // 바질
@@ -45,6 +46,9 @@ function Schedule() {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [viewMode, setViewMode] = useState('month') // 'month' | 'agenda'
   
+  // 👁️ 캘린더 보기 모드 ('all': 전체 함께 보기 | 'mine': 내 스튜디오 일정만 | 'comjjang': 컴짱 회의 일정만)
+  const [calendarFilter, setCalendarFilter] = useState('all')
+
   // 🚲 일상 루틴 필터 (기본값: 루틴 숨김! 주요 일정만 깔끔하게 보기)
   const [hideRoutines, setHideRoutines] = useState(true)
 
@@ -62,6 +66,8 @@ function Schedule() {
     end_time: '',
     all_day: false,
     is_routine: false,
+    is_comjjang: false,
+    calendar_id: 'primary',
     color_id: '9',
     location: '',
   })
@@ -143,6 +149,19 @@ function Schedule() {
     }
   }
 
+  // 4-1. 구글에 '💻 컴짱 회의' 캘린더 자동 생성
+  const handleCreateComjjangCalendar = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/calendars/create-comjjang`, { method: 'POST' })
+      if (!res.ok) throw new Error('컴짱 캘린더 생성 실패')
+      const data = await res.json()
+      showToast(data.message || '구글 계정에 "💻 컴짱 회의" 캘린더가 준비되었습니다!', 'success')
+      fetchEvents()
+    } catch (e) {
+      showToast('오류: ' + e.message, 'error')
+    }
+  }
+
   // 5. 일정 목록 불러오기
   const fetchEvents = async () => {
     setLoading(true)
@@ -195,7 +214,9 @@ function Schedule() {
       end_time: `${defaultDate}T10:00:00`,
       all_day: false,
       is_routine: false,
-      color_id: '9',
+      is_comjjang: calendarFilter === 'comjjang',
+      calendar_id: calendarFilter === 'comjjang' ? 'comjjang' : 'primary',
+      color_id: calendarFilter === 'comjjang' ? '7' : '9',
       location: '',
     })
     setModalOpen(true)
@@ -223,6 +244,8 @@ function Schedule() {
       end_time: et,
       all_day: !!event.all_day,
       is_routine: !!event.is_routine,
+      is_comjjang: !!event.is_comjjang,
+      calendar_id: event.calendar_id || 'primary',
       color_id: event.color_id || '9',
       location: event.location || '',
     })
@@ -301,19 +324,37 @@ function Schedule() {
       title: prev.title ? `${preset.label} - ${prev.title}` : preset.label,
       color_id: preset.colorId,
       description: prev.description || preset.defaultDesc,
-      is_routine: !!preset.isRoutine
+      is_routine: !!preset.isRoutine,
+      is_comjjang: !!preset.isComjjang,
+      calendar_id: preset.isComjjang ? 'comjjang' : prev.calendar_id,
     }))
   }
 
-  // 🚲 필터링된 이벤트 목록 (루틴 숨김 모드일 경우 루틴 제외)
+  // 👁️ 필터링된 이벤트 목록 (루틴 숨김 및 캘린더 모드 적용)
   const displayEvents = events.filter(ev => {
+    // 1. 일상 루틴 숨김 체크
     if (hideRoutines && ev.is_routine) {
+      return false
+    }
+    // 2. 휴일(is_holiday)은 어떤 필터 모드에서도 달력에 상시 유지 (휴일 여부를 놓치지 않도록 보장)
+    if (ev.is_holiday) {
+      return true
+    }
+    // 3. 캘린더 보기 모드 체크
+    if (calendarFilter === 'mine' && ev.is_comjjang) {
+      return false
+    }
+    if (calendarFilter === 'comjjang' && !ev.is_comjjang) {
       return false
     }
     return true
   })
 
-  // 총 루틴 개수 파악
+  // 일정 통계
+  const allEventsCount = events.filter(ev => !ev.is_routine && !ev.is_holiday).length
+  const mineEventsCount = events.filter(ev => !ev.is_routine && !ev.is_comjjang && !ev.is_holiday).length
+  const comjjangEventsCount = events.filter(ev => !ev.is_routine && ev.is_comjjang).length
+  const holidayEventsCount = events.filter(ev => ev.is_holiday).length
   const routineEventsCount = events.filter(ev => ev.is_routine).length
 
   // 캘린더 날짜 계산 (월간 그리드)
@@ -354,12 +395,33 @@ function Schedule() {
       const isToday = cell.dateStr === todayStr
       const isSelected = cell.dateStr === dayDetailDate
       
+      // 요일 판별 (0: 일요일, 6: 토요일)
+      const cellDate = new Date(cell.dateStr + 'T00:00:00')
+      const dayOfWeek = cellDate.getDay()
+      const isSunday = dayOfWeek === 0
+      const isSaturday = dayOfWeek === 6
+
+      // 해당 날짜의 법정 공휴일 여부 판별
+      const dayHoliday = events.find(ev => {
+        if (!ev.is_holiday || !ev.start) return false
+        const evStartStr = ev.start.slice(0, 10)
+        const evEndStr = ev.end ? ev.end.slice(0, 10) : evStartStr
+        return cell.dateStr >= evStartStr && cell.dateStr <= evEndStr
+      })
+
       // 해당 날짜에 걸쳐 있는 표시 대상 이벤트들
       const dayEvents = displayEvents.filter(ev => {
         if (!ev.start) return false
         const evStartStr = ev.start.slice(0, 10)
         const evEndStr = ev.end ? ev.end.slice(0, 10) : evStartStr
         return cell.dateStr >= evStartStr && cell.dateStr <= evEndStr
+      })
+
+      // 휴일 이벤트 우선 정렬
+      const sortedDayEvents = [...dayEvents].sort((a, b) => {
+        if (a.is_holiday && !b.is_holiday) return -1
+        if (!a.is_holiday && b.is_holiday) return 1
+        return 0
       })
 
       // 숨겨진 루틴이 오늘 날짜에 있는지 체크
@@ -373,12 +435,22 @@ function Schedule() {
       return (
         <div
           key={idx}
-          className={`calendar-cell ${cell.isCurrentMonth ? '' : 'outside'} ${isToday ? 'today' : ''} ${isSelected ? 'cell-selected' : ''}`}
+          className={`calendar-cell ${cell.isCurrentMonth ? '' : 'outside'} ${isToday ? 'today' : ''} ${isSelected ? 'cell-selected' : ''} ${dayHoliday ? 'is-holiday-cell' : ''} ${isSunday ? 'is-sunday-cell' : ''} ${isSaturday ? 'is-saturday-cell' : ''}`}
           onClick={() => openDayDetailModal(cell.dateStr)}
         >
           <div className="cell-header">
             <div className="day-number-row">
-              <span className={`day-number ${isToday ? 'today-badge' : ''}`}>{cell.day}</span>
+              <span className={`day-number ${isToday ? 'today-badge' : ''} ${dayHoliday ? 'holiday-number' : isSunday ? 'sunday-number' : isSaturday ? 'saturday-number' : ''}`}>
+                {cell.day}
+              </span>
+
+              {/* 🔴 공휴일 이름 뱃지 (날짜 바로 옆에 선명하게 노출) */}
+              {dayHoliday && (
+                <span className="holiday-name-badge" title={`대한민국 법정 공휴일: ${dayHoliday.title}`}>
+                  {dayHoliday.title}
+                </span>
+              )}
+
               {/* 숨겨진 루틴이 있을 때 날짜 옆에 미니 뱃지 표시 */}
               {hideRoutines && hiddenRoutinesToday.length > 0 && (
                 <span
@@ -407,8 +479,8 @@ function Schedule() {
           </div>
           
           <div className="cell-events">
-            {dayEvents.slice(0, 3).map(ev => {
-              const color = GOOGLE_COLORS[ev.color_id] || '#3b82f6'
+            {sortedDayEvents.slice(0, 3).map(ev => {
+              const color = GOOGLE_COLORS[ev.color_id] || (ev.is_holiday ? '#ef4444' : '#3b82f6')
               const evStartStr = ev.start ? ev.start.slice(0, 10) : ''
               const evEndStr = ev.end ? ev.end.slice(0, 10) : evStartStr
               const isMultiDay = evStartStr !== evEndStr
@@ -428,25 +500,44 @@ function Schedule() {
                 timeDisplay = ev.start.slice(11, 16)
               }
 
+              // 🚩 휴일 전용 알약 필 렌더링
+              if (ev.is_holiday) {
+                return (
+                  <div
+                    key={`${ev.id}_${cell.dateStr}`}
+                    className="event-pill holiday-pill"
+                    title={`🚩 [대한민국 공휴일] ${ev.title}\n${ev.description || ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openDayDetailModal(cell.dateStr)
+                    }}
+                  >
+                    <span className="holiday-flag-icon">🚩</span>
+                    <span className="event-title holiday-text">{ev.title}</span>
+                  </div>
+                )
+              }
+
               return (
                 <div
                   key={`${ev.id}_${cell.dateStr}`}
-                  className={`event-pill ${isMultiDay ? 'multi-day' : ''} ${ev.is_routine ? 'routine-pill' : ''}`}
+                  className={`event-pill ${isMultiDay ? 'multi-day' : ''} ${ev.is_routine ? 'routine-pill' : ''} ${ev.is_comjjang ? 'comjjang-pill' : ''}`}
                   style={{ borderLeftColor: color }}
-                  title={`${ev.title}\n${ev.description || ''}`}
+                  title={`${ev.is_comjjang ? '💻 [컴짱 회의 일정]\n' : ''}${ev.title}\n${ev.description || ''}`}
                   onClick={(e) => {
                     e.stopPropagation()
                     openDayDetailModal(cell.dateStr)
                   }}
                 >
                   <span className="event-color-dot" style={{ background: color }} />
+                  {ev.is_comjjang && <span className="comjjang-mini-badge">💻</span>}
                   {timeDisplay && <span className="event-time">{timeDisplay}</span>}
                   <span className="event-title">{ev.title}</span>
                 </div>
               )
             })}
-            {dayEvents.length > 3 && (
-              <div className="more-events">+{dayEvents.length - 3}개 더보기</div>
+            {sortedDayEvents.length > 3 && (
+              <div className="more-events">+{sortedDayEvents.length - 3}개 더보기</div>
             )}
           </div>
         </div>
@@ -461,7 +552,9 @@ function Schedule() {
         <div className="empty-agenda">
           <span className="empty-icon">📅</span>
           <p>
-            {hideRoutines && routineEventsCount > 0
+            {calendarFilter === 'comjjang'
+              ? '컴짱 회의 일정이 없습니다. 회의를 진행하고 일정을 동기화해보세요!'
+              : hideRoutines && routineEventsCount > 0
               ? `주요 일정이 없습니다. (일상 루틴 ${routineEventsCount}개가 숨겨져 있습니다)`
               : '등록된 일정이 없습니다. 새 일정을 추가해보세요!'}
           </p>
@@ -481,27 +574,30 @@ function Schedule() {
     return (
       <div className="agenda-list">
         {displayEvents.map(ev => {
-          const color = GOOGLE_COLORS[ev.color_id] || '#3b82f6'
+          const isHoliday = !!ev.is_holiday
+          const color = isHoliday ? '#ef4444' : (GOOGLE_COLORS[ev.color_id] || '#3b82f6')
           const dateStr = ev.start ? ev.start.slice(0, 10) : ''
-          const timeStr = ev.all_day ? '하루 종일' : `${ev.start?.slice(11, 16)} ~ ${ev.end?.slice(11, 16)}`
+          const timeStr = isHoliday ? '대한민국 공휴일' : (ev.all_day ? '하루 종일' : `${ev.start?.slice(11, 16)} ~ ${ev.end?.slice(11, 16)}`)
 
           return (
             <div
               key={ev.id}
-              className={`agenda-item ${ev.is_routine ? 'routine-item' : ''}`}
+              className={`agenda-item ${ev.is_routine ? 'routine-item' : ''} ${ev.is_comjjang ? 'comjjang-agenda-item' : ''} ${isHoliday ? 'holiday-agenda-item' : ''}`}
               onClick={() => openEditModal(ev)}
             >
               <div className="agenda-color-bar" style={{ background: color }} />
               <div className="agenda-date-box">
-                <span className="agenda-date-day">{dateStr.slice(8, 10)}</span>
+                <span className={`agenda-date-day ${isHoliday ? 'holiday-date-text' : ''}`}>{dateStr.slice(8, 10)}</span>
                 <span className="agenda-date-month">{dateStr.slice(5, 7)}월</span>
               </div>
               <div className="agenda-info">
                 <div className="agenda-title-row">
-                  <h4 className="agenda-title">{ev.title}</h4>
+                  <h4 className="agenda-title">{isHoliday ? `🚩 ${ev.title}` : ev.title}</h4>
+                  {isHoliday && <span className="holiday-badge-tag">🔴 법정 공휴일</span>}
+                  {ev.is_comjjang && <span className="comjjang-tag">💻 컴짱 회의</span>}
                   {ev.is_routine && <span className="routine-tag">🚲 루틴</span>}
                   <span className="agenda-badge" style={{ backgroundColor: `${color}20`, color: color }}>
-                    {ev.all_day ? '종일' : '시간'}
+                    {isHoliday ? '공휴일' : ev.all_day ? '종일' : '시간'}
                   </span>
                 </div>
                 <div className="agenda-meta">
@@ -604,42 +700,72 @@ function Schedule() {
         </div>
       </div>
 
-      {/* 🚲 스마트 캘린더 필터 바 (루틴 분리/숨김 컨트롤) */}
+      {/* 👁️ 캘린더 보기 모드 및 스마트 필터 바 */}
       <div className="smart-filter-bar">
-        <div className="filter-item active">
-          <span className="filter-dot primary" />
-          <span className="filter-title">📌 스튜디오 주요 일정</span>
-          <span className="filter-count">{events.filter(e => !e.is_routine).length}개</span>
-        </div>
-
-        <div
-          className={`filter-item toggleable ${!hideRoutines ? 'active' : 'dimmed'}`}
-          onClick={() => setHideRoutines(!hideRoutines)}
-          title="클릭하여 매일 반복되는 자전거/운동 루틴 표시 여부를 전환합니다"
-        >
-          <span className="filter-dot routine" />
-          <span className="filter-title">🚲 일상 루틴 (자전거 등)</span>
-          <span className="filter-count">{routineEventsCount}개</span>
-          <span className={`toggle-chip ${hideRoutines ? 'off' : 'on'}`}>
-            {hideRoutines ? '숨김 중' : '표시 중'}
-          </span>
-        </div>
-
-        {hideRoutines && routineEventsCount > 0 && (
-          <div className="filter-hint">
-            💡 자전거 타기 등 매일 반복 루틴은 달력을 깨끗하게 유지하기 위해 숨겨져 있습니다 (날짜를 클릭하면 상세 팝업에서 확인 가능)
-          </div>
-        )}
-
-        {authStatus.is_authenticated && (
+        <div className="calendar-view-tabs">
           <button
-            className="create-routine-cal-btn"
-            onClick={handleCreateRoutineCalendar}
-            title="구글 계정에 '일상 루틴' 전용 보조 캘린더를 생성합니다"
+            className={`cal-filter-tab ${calendarFilter === 'all' ? 'active' : ''}`}
+            onClick={() => setCalendarFilter('all')}
+            title="스튜디오 일정과 컴짱 회의 일정을 모두 함께 봅니다"
           >
-            + 구글에 '일상 루틴' 캘린더 생성
+            <span className="cal-tab-icon">🌟</span>
+            <span className="cal-tab-title">전체 함께 보기</span>
+            <span className="cal-tab-count">{allEventsCount}</span>
           </button>
-        )}
+
+          <button
+            className={`cal-filter-tab mine ${calendarFilter === 'mine' ? 'active' : ''}`}
+            onClick={() => setCalendarFilter('mine')}
+            title="컴짱 회의 일정을 제외한 내 스튜디오/개인 일정만 봅니다"
+          >
+            <span className="cal-tab-dot primary" />
+            <span className="cal-tab-title">📌 내 일정만 보기</span>
+            <span className="cal-tab-count">{mineEventsCount}</span>
+          </button>
+
+          <button
+            className={`cal-filter-tab comjjang ${calendarFilter === 'comjjang' ? 'active' : ''}`}
+            onClick={() => setCalendarFilter('comjjang')}
+            title="컴짱 회의에서 도출된 업무 및 마감 일정만 집중적으로 봅니다"
+          >
+            <span className="cal-tab-dot comjjang" />
+            <span className="cal-tab-title">💻 컴짱 회의만 보기</span>
+            <span className="cal-tab-count">{comjjangEventsCount}</span>
+          </button>
+        </div>
+
+        <div className="filter-right-tools">
+          <div
+            className={`routine-toggle-btn ${!hideRoutines ? 'active' : 'dimmed'}`}
+            onClick={() => setHideRoutines(!hideRoutines)}
+            title="클릭하여 매일 반복되는 자전거/운동 루틴 표시 여부를 전환합니다"
+          >
+            <span className="filter-dot routine" />
+            <span className="filter-title">🚲 일상 루틴 ({routineEventsCount}개)</span>
+            <span className={`toggle-chip ${hideRoutines ? 'off' : 'on'}`}>
+              {hideRoutines ? '숨김' : '표시'}
+            </span>
+          </div>
+
+          {authStatus.is_authenticated && (
+            <div className="google-subcal-actions">
+              <button
+                className="create-comjjang-cal-btn"
+                onClick={handleCreateComjjangCalendar}
+                title="구글 계정에 '💻 컴짱 회의' 전용 보조 캘린더를 생성/동기화합니다"
+              >
+                + 구글 '💻 컴짱' 캘린더
+              </button>
+              <button
+                className="create-routine-cal-btn"
+                onClick={handleCreateRoutineCalendar}
+                title="구글 계정에 '일상 루틴' 전용 보조 캘린더를 생성합니다"
+              >
+                + 구글 '🚲 루틴' 캘린더
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 캘린더 툴바 (날짜 네비게이션 & 뷰 전환) */}
@@ -710,6 +836,28 @@ function Schedule() {
             </div>
 
             <div className="day-detail-body">
+              {/* 🚩 공휴일 감지 시 상단 공휴일 배너 */}
+              {(() => {
+                const dayHoliday = selectedDayAllEvents.find(ev => ev.is_holiday)
+                if (!dayHoliday) return null
+                return (
+                  <div className="day-detail-holiday-banner">
+                    <div className="holiday-banner-left">
+                      <span className="holiday-banner-icon">🚩</span>
+                      <div className="holiday-banner-text">
+                        <div className="holiday-banner-header">
+                          <h4 className="holiday-banner-title">{dayHoliday.title}</h4>
+                          <span className="holiday-badge-tag">🔴 대한민국 공휴일</span>
+                        </div>
+                        <p className="holiday-banner-desc">
+                          {dayHoliday.description || '대한민국 법정 공휴일 (휴무일)'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+
               {/* 상단 액션 바 */}
               <div className="day-detail-actions-row">
                 <span className="events-count-label">
@@ -738,28 +886,36 @@ function Schedule() {
                   </div>
                 ) : (
                   selectedDayAllEvents.map(ev => {
-                    const color = GOOGLE_COLORS[ev.color_id] || '#3b82f6'
+                    const isHoliday = !!ev.is_holiday
+                    const color = isHoliday ? '#ef4444' : (GOOGLE_COLORS[ev.color_id] || '#3b82f6')
                     const evStartStr = ev.start ? ev.start.slice(0, 10) : ''
                     const evEndStr = ev.end ? ev.end.slice(0, 10) : evStartStr
                     const isMultiDay = evStartStr !== evEndStr
-                    const timeStr = ev.all_day
+                    const timeStr = isHoliday
                       ? '하루 종일'
-                      : (isMultiDay
-                          ? `${ev.start?.slice(0, 10)} ${ev.start?.slice(11, 16)} ~ ${ev.end?.slice(0, 10)} ${ev.end?.slice(11, 16)}`
-                          : `${ev.start?.slice(11, 16)} ~ ${ev.end?.slice(11, 16)}`)
+                      : (ev.all_day
+                          ? '하루 종일'
+                          : (isMultiDay
+                              ? `${ev.start?.slice(0, 10)} ${ev.start?.slice(11, 16)} ~ ${ev.end?.slice(0, 10)} ${ev.end?.slice(11, 16)}`
+                              : `${ev.start?.slice(11, 16)} ~ ${ev.end?.slice(11, 16)}`))
 
                     return (
                       <div
                         key={ev.id}
-                        className={`day-event-card ${ev.is_routine ? 'routine-card' : ''}`}
+                        className={`day-event-card ${isHoliday ? 'holiday-card' : ''} ${ev.is_routine ? 'routine-card' : ''}`}
                         style={{ borderLeftColor: color }}
                       >
                         <div className="day-event-main">
                           <div className="day-event-title-row">
-                            <h4 className="day-event-title">{ev.title}</h4>
+                            <h4 className="day-event-title">
+                              {isHoliday && <span className="holiday-card-prefix">🚩 </span>}
+                              {ev.title}
+                            </h4>
+                            {isHoliday && <span className="holiday-badge-tag">🔴 법정 공휴일</span>}
+                            {ev.is_comjjang && <span className="comjjang-tag">💻 컴짱 회의</span>}
                             {ev.is_routine && <span className="routine-tag">🚲 루틴</span>}
                             <span className="badge-source" style={{ color: color, borderColor: `${color}40` }}>
-                              {ev.source === 'google' ? 'Google' : 'Studio'}
+                              {isHoliday ? '대한민국 공휴일' : ev.is_comjjang ? '💻 컴짱' : ev.source === 'google' ? 'Google' : 'Studio'}
                             </span>
                           </div>
 
@@ -773,22 +929,24 @@ function Schedule() {
                           )}
                         </div>
 
-                        <div className="day-event-actions">
-                          <button
-                            className="icon-btn edit"
-                            title="수정하기"
-                            onClick={() => openEditModal(ev)}
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            className="icon-btn delete"
-                            title="삭제하기"
-                            onClick={() => handleDeleteEvent(ev.id)}
-                          >
-                            🗑️
-                          </button>
-                        </div>
+                        {!isHoliday && (
+                          <div className="day-event-actions">
+                            <button
+                              className="icon-btn edit"
+                              title="수정하기"
+                              onClick={() => openEditModal(ev)}
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              className="icon-btn delete"
+                              title="삭제하기"
+                              onClick={() => handleDeleteEvent(ev.id)}
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )
                   })
@@ -852,7 +1010,7 @@ function Schedule() {
                 />
               </div>
 
-              {/* 루틴 여부 및 종일 여부 */}
+              {/* 루틴 여부, 컴짱 여부, 종일 여부 */}
               <div className="form-row form-checkbox-row">
                 <label className="checkbox-label">
                   <input
@@ -860,7 +1018,24 @@ function Schedule() {
                     checked={eventForm.all_day}
                     onChange={(e) => setEventForm({ ...eventForm, all_day: e.target.checked })}
                   />
-                  <span>하루 종일 (시간 미지정)</span>
+                  <span>하루 종일</span>
+                </label>
+
+                <label className="checkbox-label comjjang-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={eventForm.is_comjjang}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      setEventForm({
+                        ...eventForm,
+                        is_comjjang: checked,
+                        color_id: checked ? '7' : eventForm.color_id,
+                        calendar_id: checked ? 'comjjang' : 'primary'
+                      })
+                    }}
+                  />
+                  <span>💻 컴짱 회의 일정</span>
                 </label>
 
                 <label className="checkbox-label routine-checkbox">

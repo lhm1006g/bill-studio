@@ -903,101 +903,156 @@
 .smart-filter-bar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 12px;
-  background: rgba(17, 24, 39, 0.6);
+  gap: 14px;
+  background: rgba(17, 24, 39, 0.65);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 10px 18px;
-  border-radius: 12px;
-  backdrop-filter: blur(12px);
+  padding: 10px 16px;
+  border-radius: 14px;
+  backdrop-filter: blur(14px);
 }
 
-.filter-item {
+/* 👁️ 캘린더 보기 3단 탭 세그먼트 */
+.calendar-view-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 4px;
+  border-radius: 12px;
+}
+
+.cal-filter-tab {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 6px 14px;
-  border-radius: 10px;
-  font-size: 13px;
-  color: #e2e8f0;
-  transition: all 0.2s;
-}
-
-.filter-item.toggleable {
-  cursor: pointer;
-  user-select: none;
-}
-
-.filter-item.toggleable:hover {
-  background: rgba(255, 255, 255, 0.1);
-  transform: translateY(-1px);
-}
-
-.filter-item.toggleable.dimmed {
-  background: rgba(15, 23, 42, 0.4);
-  border-color: rgba(255, 255, 255, 0.05);
+  background: transparent;
+  border: 1px solid transparent;
   color: #94a3b8;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.filter-dot {
+.cal-filter-tab:hover {
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.cal-filter-tab.active {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.45);
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.25);
+}
+
+.cal-filter-tab.mine.active {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #93c5fd;
+  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.25);
+}
+
+.cal-filter-tab.comjjang.active {
+  background: rgba(14, 165, 233, 0.22);
+  border-color: rgba(14, 165, 233, 0.55);
+  color: #38bdf8;
+  box-shadow: 0 2px 12px rgba(14, 165, 233, 0.3);
+}
+
+.cal-tab-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
 }
 
-.filter-dot.primary {
-  background: #6366f1;
-  box-shadow: 0 0 6px #6366f1;
+.cal-tab-dot.primary {
+  background: #3b82f6;
+  box-shadow: 0 0 6px #3b82f6;
 }
 
-.filter-dot.routine {
-  background: #eab308;
-  box-shadow: 0 0 6px #eab308;
+.cal-tab-dot.comjjang {
+  background: #0284c7;
+  box-shadow: 0 0 6px #38bdf8;
 }
 
-.filter-title {
-  font-weight: 600;
-}
-
-.filter-count {
+.cal-tab-count {
   font-size: 11px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
   padding: 1px 7px;
   border-radius: 10px;
   color: #cbd5e1;
 }
 
-.toggle-chip {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 6px;
-  margin-left: 4px;
+.cal-filter-tab.active .cal-tab-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
 }
 
-.toggle-chip.off {
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+/* 필터 우측 도구 */
+.filter-right-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.toggle-chip.on {
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-
-.filter-hint {
+.routine-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  padding: 6px 12px;
+  border-radius: 10px;
   font-size: 12px;
+  font-weight: 600;
+  color: #fde047;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+}
+
+.routine-toggle-btn:hover {
+  background: rgba(234, 179, 8, 0.2);
+  transform: translateY(-1px);
+}
+
+.routine-toggle-btn.dimmed {
+  background: rgba(15, 23, 42, 0.4);
+  border-color: rgba(255, 255, 255, 0.08);
   color: #94a3b8;
-  flex: 1;
-  min-width: 250px;
+}
+
+.google-subcal-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.create-comjjang-cal-btn {
+  background: rgba(14, 165, 233, 0.15);
+  border: 1px solid rgba(14, 165, 233, 0.4);
+  color: #38bdf8;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.create-comjjang-cal-btn:hover {
+  background: rgba(14, 165, 233, 0.28);
+  transform: translateY(-1px);
 }
 
 .create-routine-cal-btn {
-  background: rgba(234, 179, 8, 0.15);
+  background: rgba(234, 179, 8, 0.12);
   border: 1px solid rgba(234, 179, 8, 0.3);
   color: #fde047;
   font-size: 12px;
@@ -1005,12 +1060,11 @@
   padding: 6px 12px;
   border-radius: 8px;
   cursor: pointer;
-  margin-left: auto;
   transition: all 0.2s;
 }
 
 .create-routine-cal-btn:hover {
-  background: rgba(234, 179, 8, 0.25);
+  background: rgba(234, 179, 8, 0.22);
   transform: translateY(-1px);
 }
 
@@ -1274,9 +1328,225 @@
   transform: translateY(-1px);
 }
 
+/* 💻 컴짱 회의 일정 전용 스타일 */
+.event-pill.comjjang-pill {
+  background: rgba(14, 165, 233, 0.16);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-left-width: 3px;
+  color: #e0f2fe;
+}
+
+.event-pill.comjjang-pill:hover {
+  background: rgba(14, 165, 233, 0.28);
+  border-color: rgba(56, 189, 248, 0.6);
+}
+
+.comjjang-mini-badge {
+  font-size: 10px;
+  line-height: 1;
+  margin-right: 2px;
+}
+
+.comjjang-tag {
+  background: rgba(14, 165, 233, 0.2);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+  letter-spacing: -0.2px;
+}
+
+.agenda-item.comjjang-agenda-item {
+  border-left: 3px solid #38bdf8;
+  background: rgba(14, 165, 233, 0.05);
+}
+
+.comjjang-checkbox {
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+.comjjang-checkbox input:checked + span {
+  color: #38bdf8;
+}
+
 .modal-footer {
   display: flex;
   justify-content: flex-end;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding-top: 14px;
 }
+
+/* ========================================================
+   🚩 법정 공휴일 및 주말(일/토) 시각화 강화 스타일
+   ======================================================== */
+
+/* 1. 캘린더 그리드 셀 틴트 */
+.calendar-cell.is-holiday-cell {
+  background: rgba(239, 68, 68, 0.08) !important;
+  border-top: 2px solid rgba(239, 68, 68, 0.45);
+}
+
+.calendar-cell.is-holiday-cell:hover {
+  background: rgba(239, 68, 68, 0.15) !important;
+}
+
+.calendar-cell.is-sunday-cell:not(.is-holiday-cell) {
+  background: rgba(244, 63, 94, 0.025);
+}
+
+.calendar-cell.is-saturday-cell:not(.is-holiday-cell) {
+  background: rgba(59, 130, 246, 0.025);
+}
+
+/* 2. 날짜 번호 폰트 컬러 */
+.day-number.holiday-number {
+  color: #ef4444 !important;
+  font-weight: 800;
+  text-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+}
+
+.day-number.sunday-number {
+  color: #f87171 !important;
+  font-weight: 700;
+}
+
+.day-number.saturday-number {
+  color: #60a5fa !important;
+  font-weight: 700;
+}
+
+/* 3. 날짜 헤더 내 공휴일 명칭 뱃지 */
+.holiday-name-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fee2e2;
+  background: rgba(239, 68, 68, 0.28);
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  padding: 1px 7px;
+  border-radius: 6px;
+  max-width: 95px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: -0.2px;
+  box-shadow: 0 1px 4px rgba(239, 68, 68, 0.25);
+  cursor: default;
+}
+
+/* 4. 캘린더 셀 내 공휴일 알약 필 (Pill) */
+.event-pill.holiday-pill {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.26) 0%, rgba(185, 28, 28, 0.26) 100%) !important;
+  border: 1px solid rgba(239, 68, 68, 0.45) !important;
+  border-left: 3px solid #ef4444 !important;
+  color: #fee2e2 !important;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.15);
+}
+
+.event-pill.holiday-pill:hover {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.38) 0%, rgba(185, 28, 28, 0.38) 100%) !important;
+  border-color: rgba(239, 68, 68, 0.7) !important;
+  transform: translateY(-1px);
+}
+
+.holiday-flag-icon {
+  font-size: 11px;
+  margin-right: 2px;
+}
+
+.event-title.holiday-text {
+  color: #fee2e2 !important;
+  font-weight: 700;
+}
+
+/* 5. 일자별 상세 모달 내 상단 공휴일 배너 */
+.day-detail-holiday-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.18) 0%, rgba(153, 27, 27, 0.22) 100%);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 12px;
+  padding: 13px 18px;
+  margin-bottom: 16px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.12);
+}
+
+.holiday-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.holiday-banner-icon {
+  font-size: 26px;
+  filter: drop-shadow(0 2px 6px rgba(239, 68, 68, 0.4));
+}
+
+.holiday-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.holiday-banner-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fee2e2;
+  letter-spacing: -0.2px;
+}
+
+.holiday-banner-desc {
+  margin: 3px 0 0 0;
+  font-size: 12px;
+  color: #fca5a5;
+}
+
+.holiday-badge-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fee2e2;
+  background: rgba(239, 68, 68, 0.25);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  padding: 2px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+  letter-spacing: -0.2px;
+}
+
+/* 6. 일자별 상세 모달 내 공휴일 카드 */
+.day-event-card.holiday-card {
+  background: rgba(239, 68, 68, 0.08) !important;
+  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+  border-left: 4px solid #ef4444 !important;
+}
+
+.holiday-card-prefix {
+  color: #ef4444;
+  font-weight: bold;
+}
+
+/* 7. 아젠다 목록 뷰 공휴일 강조 */
+.agenda-item.holiday-agenda-item {
+  background: rgba(239, 68, 68, 0.07) !important;
+  border: 1px solid rgba(239, 68, 68, 0.25) !important;
+  border-left: 4px solid #ef4444 !important;
+}
+
+.agenda-item.holiday-agenda-item:hover {
+  background: rgba(239, 68, 68, 0.12) !important;
+}
+
+.agenda-date-day.holiday-date-text {
+  color: #ef4444 !important;
+  font-weight: 800;
+  text-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+}
+
