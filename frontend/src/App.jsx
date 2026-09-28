@@ -10,6 +10,7 @@ import News from './pages/News'
 import AiChat from './pages/AiChat'
 import Research from './pages/Research'
 import Meetings from './pages/Meetings'
+import FloatingAiAssistant from './components/FloatingAiAssistant'
 import './App.css'
 
 function App() {
@@ -34,6 +35,8 @@ function App() {
             </Routes>
           </main>
         </div>
+        {/* ✨ 전역 플로팅 AI 어시스턴트 위젯 */}
+        <FloatingAiAssistant />
       </div>
     </BrowserRouter>
   )
