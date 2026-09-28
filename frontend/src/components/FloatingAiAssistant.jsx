@@ -317,32 +317,42 @@ export default function FloatingAiAssistant() {
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let accumulated = ''
+      let buffer = ''
 
       while (true) {
         const { value, done } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split('\n')
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const dataStr = line.slice(6).trim()
-            if (dataStr === '[DONE]') {
-              break
+          if (!line.startsWith('data: ')) continue
+          const dataStr = line.slice(6).trim()
+          if (dataStr === '[DONE]') {
+            break
+          }
+          try {
+            const parsed = JSON.parse(dataStr)
+            if (parsed.error) {
+              accumulated += `\n\n⚠️ 오류: ${parsed.error}`
+              setStreamingText(accumulated)
+            } else if (parsed.type === 'token' && parsed.text) {
+              accumulated += parsed.text
+              setStreamingText(accumulated)
+            } else if (parsed.type === 'done' && parsed.full_text) {
+              accumulated = parsed.full_text
+              setStreamingText(accumulated)
+            } else if (parsed.text) {
+              accumulated += parsed.text
+              setStreamingText(accumulated)
+            } else if (parsed.content) {
+              accumulated += parsed.content
+              setStreamingText(accumulated)
             }
-            try {
-              const parsed = JSON.parse(dataStr)
-              if (parsed.error) {
-                accumulated += `\n\n⚠️ 오류: ${parsed.error}`
-                setStreamingText(accumulated)
-              } else if (parsed.content) {
-                accumulated += parsed.content
-                setStreamingText(accumulated)
-              }
-            } catch {
-              // JSON 파싱 실패 무시
-            }
+          } catch {
+            // JSON 파싱 실패 무시
           }
         }
       }

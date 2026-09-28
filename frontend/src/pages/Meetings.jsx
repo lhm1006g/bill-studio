@@ -164,11 +164,28 @@ function Meetings() {
   // 상세 모달 상태
   const [selectedMeeting, setSelectedMeeting] = useState(null)
   const [selectedDayList, setSelectedDayList] = useState(null) // { dateStr, displayDate, meetings, unregistered }
+  const [expandedDayMeetingIds, setExpandedDayMeetingIds] = useState(new Set())
   const [detailTab, setDetailTab] = useState('summary') // 'summary' | 'actions' | 'transcript'
   const [summaryViewMode, setSummaryViewMode] = useState('card') // 'card' | 'raw'
   const [collapsedAgendas, setCollapsedAgendas] = useState(new Set())
   const [isResummarizing, setIsResummarizing] = useState(false)
   const audioRef = useRef(null)
+
+  // 일자별 회의 아코디언 토글
+  const toggleDayMeetingExpand = (id) => {
+    setExpandedDayMeetingIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const expandAllDayMeetings = (meetingList) => {
+    setExpandedDayMeetingIds(new Set(meetingList.map(m => m.id)))
+  }
+  const collapseAllDayMeetings = () => {
+    setExpandedDayMeetingIds(new Set())
+  }
 
   // 안건 접기/펼치기 토글
   const toggleAgendaCollapse = (id) => {
@@ -855,6 +872,12 @@ function Meetings() {
                         meetings: dayMeetings,
                         unregistered: dayUnregistered,
                       })
+                      // 1건이면 자동 펼침, 2건 이상이면 가독성을 위해 타이틀 위주로 접어둠
+                      if (dayMeetings.length === 1) {
+                        setExpandedDayMeetingIds(new Set([dayMeetings[0].id]))
+                      } else {
+                        setExpandedDayMeetingIds(new Set())
+                      }
                     } else {
                       setMeetingDate(cell.dateStr)
                       setIsProcessModalOpen(true)
@@ -1260,11 +1283,29 @@ function Meetings() {
                 </div>
               )}
 
-              {/* 2. 등록 완료된 회의 목록 */}
+              {/* 2. 등록 완료된 회의 목록 (타이틀 위주 아코디언) */}
               <div className="day-list-meetings-section">
                 <div className="day-list-section-title">
-                  <span>🎙️</span>
-                  <h4>회의록 목록 ({selectedDayList.meetings.length}건)</h4>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span>🎙️</span>
+                    <h4>회의록 목록 ({selectedDayList.meetings.length}건)</h4>
+                  </div>
+                  {selectedDayList.meetings.length > 0 && (
+                    <button
+                      type="button"
+                      className="accordion-toggle-all-btn"
+                      onClick={() => {
+                        if (expandedDayMeetingIds.size === selectedDayList.meetings.length) {
+                          collapseAllDayMeetings()
+                        } else {
+                          expandAllDayMeetings(selectedDayList.meetings)
+                        }
+                      }}
+                      title={expandedDayMeetingIds.size === selectedDayList.meetings.length ? '모든 회의 접기' : '모든 회의 상세 펼치기'}
+                    >
+                      {expandedDayMeetingIds.size === selectedDayList.meetings.length ? '▲ 전체 접기' : '▼ 전체 펼치기'}
+                    </button>
+                  )}
                 </div>
 
                 {selectedDayList.meetings.length === 0 ? (
@@ -1276,44 +1317,91 @@ function Meetings() {
                     {selectedDayList.meetings.map(m => {
                       const actions = m.action_items || []
                       const doneActions = actions.filter(a => a.done).length
+                      const isExpanded = expandedDayMeetingIds.has(m.id)
 
                       return (
                         <div
                           key={m.id}
-                          className="day-list-meeting-card"
-                          onClick={() => handleOpenDetail(m.id)}
+                          className={`day-list-meeting-card ${isExpanded ? 'is-expanded' : 'is-collapsed'}`}
                         >
-                          <div className="meeting-card-top-row">
-                            <div className="meeting-time-badge">
-                              ⏰ {m.start_time || '시간 미지정'}
-                              {m.duration_sec > 0 && ` (${formatDuration(m.duration_sec)})`}
+                          {/* 헤더: 클릭 시 아코디언 펼침/접힘 토글 */}
+                          <div
+                            className="day-list-meeting-header"
+                            onClick={() => toggleDayMeetingExpand(m.id)}
+                            role="button"
+                            tabIndex={0}
+                            title={isExpanded ? '클릭하여 상세 접기' : '클릭하여 핵심 요약 및 상세 펼치기'}
+                          >
+                            <div className="meeting-header-left">
+                              <span className="meeting-icon-tag">🎙️</span>
+                              <div className="meeting-header-titles">
+                                <h3 className="meeting-card-title">{m.title}</h3>
+                                <div className="meeting-header-meta">
+                                  <span className="meeting-time-badge">
+                                    ⏰ {m.start_time || '시간 미지정'}
+                                    {m.duration_sec > 0 && ` (${formatDuration(m.duration_sec)})`}
+                                  </span>
+                                  {actions.length > 0 && (
+                                    <span className="action-chip mini">
+                                      🚀 액션 {doneActions}/{actions.length}
+                                    </span>
+                                  )}
+                                  <span className="meeting-status-badge">AI 분석 완료</span>
+                                </div>
+                              </div>
                             </div>
-                            <span className="meeting-status-badge">AI 분석 완료</span>
+
+                            <div className="meeting-header-right">
+                              <button
+                                type="button"
+                                className="btn-direct-detail"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleOpenDetail(m.id)
+                                }}
+                                title="상세 회의록 바로 보기"
+                              >
+                                상세 ➔
+                              </button>
+                              <div className={`meeting-chevron-box ${isExpanded ? 'expanded' : ''}`}>
+                                <span className="meeting-chevron-icon">▼</span>
+                              </div>
+                            </div>
                           </div>
 
-                          <h3 className="meeting-card-title">{m.title}</h3>
-
-                          {m.summary && (
-                            <p className="meeting-card-preview">
-                              {m.summary.replace(/[#*`]/g, '').slice(0, 140)}...
-                            </p>
-                          )}
-
-                          <div className="meeting-card-footer">
-                            <div className="meeting-meta-chips">
-                              {actions.length > 0 && (
-                                <span className="action-chip">
-                                  🚀 액션아이템 {doneActions}/{actions.length}
-                                </span>
+                          {/* 바디: 펼쳐졌을 때만 노출되는 상세 내용 */}
+                          {isExpanded && (
+                            <div className="day-list-meeting-body">
+                              {m.summary && (
+                                <div className="meeting-body-summary-box">
+                                  <div className="summary-box-label">📌 AI 핵심 요약</div>
+                                  <p className="meeting-card-preview">
+                                    {m.summary.replace(/[#*`]/g, '')}
+                                  </p>
+                                </div>
                               )}
-                              {m.tags && m.tags.slice(0, 3).map((t, idx) => (
-                                <span key={idx} className="tag-chip">#{t}</span>
-                              ))}
+
+                              <div className="meeting-card-footer">
+                                <div className="meeting-meta-chips">
+                                  {actions.length > 0 && (
+                                    <span className="action-chip">
+                                      🚀 액션아이템 {doneActions}/{actions.length}건
+                                    </span>
+                                  )}
+                                  {m.tags && m.tags.map((t, idx) => (
+                                    <span key={idx} className="tag-chip">#{t}</span>
+                                  ))}
+                                </div>
+                                <button
+                                  type="button"
+                                  className="btn-view-detail"
+                                  onClick={() => handleOpenDetail(m.id)}
+                                >
+                                  상세 회의록 전체 열기 ➔
+                                </button>
+                              </div>
                             </div>
-                            <button type="button" className="btn-view-detail">
-                              상세 회의록 보기 ➔
-                            </button>
-                          </div>
+                          )}
                         </div>
                       )
                     })}

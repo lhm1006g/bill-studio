@@ -1215,6 +1215,250 @@
   gap: 10px;
 }
 
+/* 상단 카운트 및 아코디언 토글 그룹 */
+.day-detail-count-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.accordion-toggle-all-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.accordion-toggle-all-btn:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+}
+
+/* 아코디언 카드 컨테이너 */
+.day-event-accordion-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 4px solid #3b82f6;
+  border-radius: 10px;
+  overflow: hidden;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.day-event-accordion-card.collapsed:hover {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+
+.day-event-accordion-card.expanded {
+  background: rgba(23, 33, 53, 0.9);
+  border-color: rgba(56, 189, 248, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* 아코디언 헤더 (클릭 시 펼침/접힘) */
+.day-event-accordion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.day-event-accordion-header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.accordion-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.accordion-event-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.accordion-title-meta-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.accordion-event-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #f1f5f9;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accordion-badge-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.accordion-time-badge {
+  font-size: 11px;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.accordion-location-preview {
+  font-size: 11px;
+  color: #94a3b8;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accordion-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.accordion-quick-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.accordion-chevron-box {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.05);
+  color: #94a3b8;
+  font-size: 10px;
+  transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.accordion-chevron-box.expanded {
+  transform: rotate(180deg);
+  background: rgba(56, 189, 248, 0.18);
+  color: #38bdf8;
+}
+
+/* 아코디언 본문 (상세 영역) */
+.day-event-accordion-body {
+  padding: 12px 14px 14px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(15, 23, 42, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: accordionFadeIn 0.2s ease-out;
+}
+
+@keyframes accordionFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.detail-meta-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.detail-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.meta-item-label {
+  color: #64748b;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.meta-item-value {
+  color: #cbd5e1;
+  font-weight: 500;
+}
+
+/* 상세 메모 박스 */
+.detail-desc-section {
+  background: rgba(30, 41, 59, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.desc-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-bottom: 6px;
+}
+
+.detail-desc-content {
+  font-size: 13px;
+  color: #e2e8f0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.detail-desc-empty {
+  font-size: 12px;
+  color: #64748b;
+  font-style: italic;
+}
+
+.accordion-body-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.small-btn {
+  padding: 5px 12px !important;
+  font-size: 12px !important;
+}
+
+/* 이전 클래스 호환 */
 .day-event-card {
   display: flex;
   justify-content: space-between;
@@ -1232,67 +1476,6 @@
   background: rgba(30, 41, 59, 0.85);
   border-color: rgba(255, 255, 255, 0.15);
   transform: translateY(-1px);
-}
-
-.day-event-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.day-event-title-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.day-event-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: #f1f5f9;
-}
-
-.badge-source {
-  font-size: 10px;
-  font-weight: 600;
-  border: 1px solid;
-  padding: 1px 6px;
-  border-radius: 4px;
-  text-transform: uppercase;
-}
-
-.day-event-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  font-size: 12px;
-  color: #94a3b8;
-}
-
-.meta-time {
-  color: #cbd5e1;
-  font-weight: 500;
-}
-
-.meta-location {
-  color: #94a3b8;
-}
-
-.day-event-desc {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: #94a3b8;
-  line-height: 1.4;
-  white-space: pre-wrap;
-}
-
-.day-event-actions {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
 }
 
 .icon-btn {

@@ -52,8 +52,9 @@ function Schedule() {
   // 🚲 일상 루틴 필터 (기본값: 루틴 숨김! 주요 일정만 깔끔하게 보기)
   const [hideRoutines, setHideRoutines] = useState(true)
 
-  // 📅 해당 날짜 상세 팝업 상태 (선택된 날짜)
+  // 📅 해당 날짜 상세 팝업 상태 (선택된 날짜 및 아코디언 상태)
   const [dayDetailDate, setDayDetailDate] = useState(null)
+  const [expandedEventIds, setExpandedEventIds] = useState(new Set())
 
   // 일정 작성 / 수정 모달 상태
   const [modalOpen, setModalOpen] = useState(false)
@@ -197,9 +198,39 @@ function Schedule() {
     setCurrentDate(new Date())
   }
 
-  // 📅 날짜 상세 팝업 열기
+  // 📅 날짜 상세 팝업 열기 (타이틀 위주 뷰 & 아코디언)
   const openDayDetailModal = (dateStr) => {
     setDayDetailDate(dateStr)
+    const dayEvs = events.filter(ev => {
+      if (!ev.start) return false
+      const s = ev.start.slice(0, 10)
+      const e = ev.end ? ev.end.slice(0, 10) : s
+      return dateStr >= s && dateStr <= e
+    })
+    // 일정이 1개일 때만 자동 펼침, 2개 이상일 때는 가독성을 위해 타이틀 위주로 접어둠
+    if (dayEvs.length === 1) {
+      setExpandedEventIds(new Set([dayEvs[0].id]))
+    } else {
+      setExpandedEventIds(new Set())
+    }
+  }
+
+  // 일정 펼침/접힘 토글
+  const toggleEventExpand = (id) => {
+    setExpandedEventIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // 전체 펼치기 / 전체 접기
+  const expandAllEvents = () => {
+    setExpandedEventIds(new Set(selectedDayAllEvents.map(e => e.id)))
+  }
+  const collapseAllEvents = () => {
+    setExpandedEventIds(new Set())
   }
 
   // 일정 생성 모달 열기
@@ -853,9 +884,27 @@ function Schedule() {
 
               {/* 상단 액션 바 */}
               <div className="day-detail-actions-row">
-                <span className="events-count-label">
-                  등록된 일정 <strong>{selectedDayAllEvents.length}</strong>개
-                </span>
+                <div className="day-detail-count-group">
+                  <span className="events-count-label">
+                    등록된 일정 <strong>{selectedDayAllEvents.length}</strong>개
+                  </span>
+                  {selectedDayAllEvents.length > 0 && (
+                    <button
+                      type="button"
+                      className="accordion-toggle-all-btn"
+                      onClick={() => {
+                        if (expandedEventIds.size === selectedDayAllEvents.length) {
+                          collapseAllEvents()
+                        } else {
+                          expandAllEvents()
+                        }
+                      }}
+                      title={expandedEventIds.size === selectedDayAllEvents.length ? '모든 일정 접기' : '모든 일정 상세 펼치기'}
+                    >
+                      {expandedEventIds.size === selectedDayAllEvents.length ? '▲ 전체 접기' : '▼ 전체 펼치기'}
+                    </button>
+                  )}
+                </div>
                 <button
                   className="primary-btn quick-day-add-btn"
                   onClick={() => openCreateModal(dayDetailDate)}
@@ -864,7 +913,7 @@ function Schedule() {
                 </button>
               </div>
 
-              {/* 일정 목록 */}
+              {/* 일정 목록 (타이틀 위주 아코디언) */}
               <div className="day-events-list">
                 {selectedDayAllEvents.length === 0 ? (
                   <div className="day-empty-box">
@@ -892,52 +941,125 @@ function Schedule() {
                               ? `${ev.start?.slice(0, 10)} ${ev.start?.slice(11, 16)} ~ ${ev.end?.slice(0, 10)} ${ev.end?.slice(11, 16)}`
                               : `${ev.start?.slice(11, 16)} ~ ${ev.end?.slice(11, 16)}`))
 
+                    const isExpanded = expandedEventIds.has(ev.id)
+
                     return (
                       <div
                         key={ev.id}
-                        className={`day-event-card ${isHoliday ? 'holiday-card' : ''} ${ev.is_routine ? 'routine-card' : ''}`}
+                        className={`day-event-accordion-card ${isHoliday ? 'holiday-card' : ''} ${ev.is_routine ? 'routine-card' : ''} ${isExpanded ? 'expanded' : 'collapsed'}`}
                         style={{ borderLeftColor: color }}
                       >
-                        <div className="day-event-main">
-                          <div className="day-event-title-row">
-                            <h4 className="day-event-title">
-                              {isHoliday && <span className="holiday-card-prefix">🚩 </span>}
-                              {ev.title}
-                            </h4>
-                            {isHoliday && <span className="holiday-badge-tag">🔴 법정 공휴일</span>}
-                            {ev.is_comjjang && <span className="comjjang-tag">💻 컴짱 회의</span>}
-                            {ev.is_routine && <span className="routine-tag">🚲 루틴</span>}
-                            <span className="badge-source" style={{ color: color, borderColor: `${color}40` }}>
-                              {isHoliday ? '대한민국 공휴일' : ev.is_comjjang ? '💻 컴짱' : ev.source === 'google' ? 'Google' : 'Studio'}
+                        {/* 1. 타이틀 헤더 바 (클릭 시 아코디언 토글) */}
+                        <div
+                          className="day-event-accordion-header"
+                          onClick={() => toggleEventExpand(ev.id)}
+                          role="button"
+                          tabIndex={0}
+                          title={isExpanded ? '클릭하여 상세 접기' : '클릭하여 상세 내용 펼치기'}
+                        >
+                          <div className="accordion-header-left">
+                            <span className="accordion-event-icon">
+                              {isHoliday ? '🚩' : ev.is_comjjang ? '💻' : ev.is_routine ? '🚲' : '📌'}
                             </span>
+                            <div className="accordion-title-meta-wrap">
+                              <h4 className="accordion-event-title">
+                                {ev.title}
+                              </h4>
+                              <div className="accordion-badge-group">
+                                <span className="accordion-time-badge">⏱️ {timeStr}</span>
+                                {isHoliday && <span className="holiday-badge-tag">🔴 법정 공휴일</span>}
+                                {ev.is_comjjang && <span className="comjjang-tag">💻 컴짱 회의</span>}
+                                {ev.is_routine && <span className="routine-tag">🚲 루틴</span>}
+                                {ev.location && <span className="accordion-location-preview">📍 {ev.location}</span>}
+                              </div>
+                            </div>
                           </div>
 
-                          <div className="day-event-meta">
-                            <span className="meta-time">⏱️ {timeStr}</span>
-                            {ev.location && <span className="meta-location">📍 {ev.location}</span>}
+                          <div className="accordion-header-right">
+                            {!isHoliday && (
+                              <div className="accordion-quick-actions" onClick={e => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  className="icon-btn edit"
+                                  title="수정하기"
+                                  onClick={() => openEditModal(ev)}
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  type="button"
+                                  className="icon-btn delete"
+                                  title="삭제하기"
+                                  onClick={() => handleDeleteEvent(ev.id)}
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            )}
+                            <div className={`accordion-chevron-box ${isExpanded ? 'expanded' : ''}`}>
+                              <span className="chevron-icon">▼</span>
+                            </div>
                           </div>
-
-                          {ev.description && (
-                            <p className="day-event-desc">{ev.description}</p>
-                          )}
                         </div>
 
-                        {!isHoliday && (
-                          <div className="day-event-actions">
-                            <button
-                              className="icon-btn edit"
-                              title="수정하기"
-                              onClick={() => openEditModal(ev)}
-                            >
-                              ✏️
-                            </button>
-                            <button
-                              className="icon-btn delete"
-                              title="삭제하기"
-                              onClick={() => handleDeleteEvent(ev.id)}
-                            >
-                              🗑️
-                            </button>
+                        {/* 2. 펼쳐진 상세 내용 영역 */}
+                        {isExpanded && (
+                          <div className="day-event-accordion-body">
+                            <div className="detail-meta-list">
+                              <div className="detail-meta-item">
+                                <span className="meta-item-label">⏱️ 일시:</span>
+                                <span className="meta-item-value">{timeStr}</span>
+                              </div>
+                              {ev.location && (
+                                <div className="detail-meta-item">
+                                  <span className="meta-item-label">📍 장소/링크:</span>
+                                  <span className="meta-item-value">{ev.location}</span>
+                                </div>
+                              )}
+                              <div className="detail-meta-item">
+                                <span className="meta-item-label">🏷️ 캘린더 분류:</span>
+                                <span className="meta-item-value" style={{ color: color }}>
+                                  {isHoliday ? '대한민국 법정 공휴일' : ev.is_comjjang ? '💻 컴짱 회의 일정' : ev.is_routine ? '🚲 일상 루틴' : (ev.source === 'google' ? 'Google Calendar' : 'Bill Studio')}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* 상세 메모 / 체크리스트 */}
+                            <div className="detail-desc-section">
+                              <div className="desc-section-header">
+                                <span className="desc-icon">📝</span>
+                                <span className="desc-title">상세 메모 & 내용</span>
+                              </div>
+                              {ev.description ? (
+                                <div className="detail-desc-content">
+                                  {ev.description}
+                                </div>
+                              ) : (
+                                <div className="detail-desc-empty">
+                                  등록된 상세 메모가 없습니다.
+                                </div>
+                              )}
+                            </div>
+
+                            {/* 하단 수정/삭제 버튼 */}
+                            {!isHoliday && (
+                              <div className="accordion-body-actions">
+                                <button
+                                  type="button"
+                                  className="secondary-btn small-btn"
+                                  onClick={() => openEditModal(ev)}
+                                >
+                                  ✏️ 일정 수정
+                                </button>
+                                <button
+                                  type="button"
+                                  className="danger-btn small-btn"
+                                  onClick={() => handleDeleteEvent(ev.id)}
+                                >
+                                  🗑️ 삭제
+                                </button>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
