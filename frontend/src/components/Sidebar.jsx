@@ -8,6 +8,7 @@ const menuItems = [
   { path: '/editor',     icon: '✂️', label: '영상 편집' },
   { path: '/subtitle',   icon: '📝', label: '자막' },
   { path: '/schedule',   icon: '📅', label: '일정 관리' },
+  { path: '/meetings',   icon: '🎙️', label: '컴짱회의' },
   { path: '/news',       icon: '📰', label: '뉴스' },
   { path: '/ai-chat',    icon: '🤖', label: 'AI 어시스턴트' },
 ]

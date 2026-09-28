@@ -9,6 +9,7 @@ import Schedule from './pages/Schedule'
 import News from './pages/News'
 import AiChat from './pages/AiChat'
 import Research from './pages/Research'
+import Meetings from './pages/Meetings'
 import './App.css'
 
 function App() {
@@ -27,6 +28,7 @@ function App() {
               <Route path="/editor" element={<Editor />} />
               <Route path="/subtitle" element={<Subtitle />} />
               <Route path="/schedule" element={<Schedule />} />
+              <Route path="/meetings" element={<Meetings />} />
               <Route path="/news" element={<News />} />
               <Route path="/ai-chat" element={<AiChat />} />
             </Routes>
