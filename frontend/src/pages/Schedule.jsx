@@ -1007,89 +1007,50 @@ function Schedule() {
                 return (
                   <div className="day-flow-container">
                     {/* ── 1. 하루 종일 & 기간 진행 중인 일정 랙 (All-day Rack) ── */}
+                    {/* ── 1. 하루 종일 & 기간 진행 중인 일정: 초슬림 알약 칩 바 (공간 최소화 & 가독성 극대화) ── */}
                     {allDayList.length > 0 && (
-                      <div className="day-allday-rack">
-                        <div className="allday-rack-header">
-                          <span className="rack-icon">📌</span>
-                          <span className="rack-title">하루 종일 & 연속 진행 중인 일정</span>
-                          <span className="rack-count">{allDayList.length}</span>
+                      <div className="day-allday-strip">
+                        <div className="allday-strip-header">
+                          <span className="strip-badge-icon">☀️</span>
+                          <span className="strip-label">종일 · 기간</span>
+                          <span className="strip-count">{allDayList.length}</span>
                         </div>
-
-                        <div className="allday-rack-list">
+                        <div className="allday-strip-chips">
                           {allDayList.map(ev => {
                             const isHoliday = !!ev.is_holiday
                             const color = isHoliday ? '#ef4444' : (GOOGLE_COLORS[ev.color_id] || '#3b82f6')
                             const evStartStr = ev.start ? ev.start.slice(0, 10) : ''
                             const evEndStr = ev.end ? ev.end.slice(0, 10) : evStartStr
-                            const isMultiDay = evStartStr !== evEndStr
-                            const timeStr = isHoliday
-                              ? '법정 공휴일'
-                              : (ev.all_day ? '하루 종일' : `${evStartStr} ~ ${evEndStr}`)
-                            const isExpanded = expandedEventIds.has(ev.id)
+                            const isMultiDay = evStartStr && evEndStr && evStartStr !== evEndStr
+                            const dateLabel = isMultiDay ? `${evStartStr.slice(5)}~${evEndStr.slice(5)}` : '종일'
 
                             return (
                               <div
                                 key={ev.id}
-                                className={`allday-event-card ${isHoliday ? 'holiday-card' : ''} ${ev.is_comjjang ? 'comjjang-card' : ''} ${ev.is_routine ? 'routine-card' : ''} ${isExpanded ? 'expanded' : 'collapsed'}`}
-                                style={{ borderLeftColor: color }}
+                                className={`allday-pill-chip ${isHoliday ? 'is-holiday' : ''} ${ev.is_comjjang ? 'is-comjjang' : ''}`}
+                                style={{ borderColor: `${color}66`, background: `${color}18` }}
+                                onClick={() => openEditModal(ev)}
+                                title={`${ev.title}${ev.description ? `\n📝 ${ev.description}` : ''}\n(클릭하여 수정)`}
                               >
-                                <div
-                                  className="allday-card-header"
-                                  onClick={() => toggleEventExpand(ev.id)}
-                                  role="button"
-                                  tabIndex={0}
-                                >
-                                  <div className="allday-card-left">
-                                    <span className="allday-icon">
-                                      {isHoliday ? '🚩' : ev.is_comjjang ? '💻' : ev.is_routine ? '🚲' : '📌'}
-                                    </span>
-                                    <div className="allday-title-group">
-                                      <h4 className="allday-title">{ev.title}</h4>
-                                      <div className="allday-badges">
-                                        <span className="allday-badge-time">⏱️ {timeStr}</span>
-                                        {isHoliday && <span className="holiday-badge-tag">🔴 공휴일</span>}
-                                        {ev.is_comjjang && <span className="comjjang-tag">💻 컴짱 회의</span>}
-                                        {ev.is_routine && <span className="routine-tag">🚲 루틴</span>}
-                                        {ev.location && <span className="allday-loc">📍 {ev.location}</span>}
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  <div className="allday-card-right">
-                                    {!isHoliday && (
-                                      <div className="accordion-quick-actions" onClick={e => e.stopPropagation()}>
-                                        <button
-                                          type="button"
-                                          className="icon-btn edit"
-                                          title="수정하기"
-                                          onClick={() => openEditModal(ev)}
-                                        >
-                                          ✏️
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="icon-btn delete"
-                                          title="삭제하기"
-                                          onClick={() => handleDeleteEvent(ev.id)}
-                                        >
-                                          🗑️
-                                        </button>
-                                      </div>
-                                    )}
-                                    <span className="allday-chevron">{isExpanded ? '▲' : '▼'}</span>
-                                  </div>
-                                </div>
-
-                                {isExpanded && (
-                                  <div className="allday-card-body">
-                                    {ev.description && (
-                                      <p className="allday-desc">{ev.description}</p>
-                                    )}
-                                    <div className="allday-meta-row">
-                                      <span>🏷️ {ev.source === 'google' ? 'Google Calendar' : 'Bill Studio'}</span>
-                                      {ev.location && <span>📍 {ev.location}</span>}
-                                    </div>
-                                  </div>
+                                <span className="pill-dot" style={{ background: color }} />
+                                <span className="pill-icon">
+                                  {isHoliday ? '🚩' : ev.is_comjjang ? '💻' : ev.is_routine ? '🚲' : '📌'}
+                                </span>
+                                <span className="pill-title">{ev.title}</span>
+                                <span className="pill-date-badge">{dateLabel}</span>
+                                {ev.is_comjjang && <span className="pill-sub-tag">컴짱</span>}
+                                {!isHoliday && (
+                                  <button
+                                    type="button"
+                                    className="pill-del-btn"
+                                    title="일정 삭제"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleDeleteEvent(ev.id)
+                                    }}
+                                  >
+                                    ✕
+                                  </button>
                                 )}
                               </div>
                             )

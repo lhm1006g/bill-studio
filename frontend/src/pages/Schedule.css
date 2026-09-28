@@ -1784,73 +1784,137 @@
   gap: 20px;
 }
 
-/* 1. 하루 종일 / 기간 일정 랙 (All-day Rack) */
-.day-allday-rack {
-  background: rgba(30, 41, 59, 0.45);
+/* 1. 하루 종일 & 기간 일정: 초슬림 스마트 알약 칩 바 (가독성 극대화 & 공간 최소화) */
+.day-allday-strip {
+  background: rgba(30, 41, 59, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  padding: 12px 14px;
-}
-
-.allday-rack-header {
+  border-radius: 10px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.allday-strip-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
   font-weight: 700;
   color: #94a3b8;
-  margin-bottom: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.allday-rack-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.strip-badge-icon {
+  font-size: 12px;
 }
 
-.allday-event-card {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-left: 4px solid #6366f1;
-  border-radius: 9px;
-  overflow: hidden;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+.strip-count {
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 10px;
 }
 
-.allday-event-card:hover {
-  background: rgba(30, 41, 59, 0.75);
-  border-color: rgba(255, 255, 255, 0.16);
-  transform: translateY(-1px);
-}
-
-.allday-title-group {
+.allday-strip-chips {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
   flex: 1;
+  min-width: 0;
 }
 
-.allday-item-title {
-  font-size: 13.5px;
+/* 알약 칩 (Pill Chip) */
+.allday-pill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(15, 23, 42, 0.6);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  max-width: 100%;
+}
+
+.allday-pill-chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(56, 189, 248, 0.5) !important;
+  background: rgba(30, 41, 59, 0.85) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pill-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.pill-title {
+  font-size: 12px;
   font-weight: 600;
   color: #f1f5f9;
-  white-space: nowrap;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.allday-badge-time {
-  font-size: 10.5px;
+.pill-date-badge {
+  font-size: 10px;
   font-weight: 700;
-  color: #a5b4fc;
-  background: rgba(99, 102, 241, 0.15);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  padding: 1px 6px;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 5px;
   border-radius: 4px;
   white-space: nowrap;
+}
+
+.pill-sub-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.18);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  padding: 1px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.pill-del-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 700;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-left: 2px;
+  padding: 0;
+}
+
+.pill-del-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ef4444;
 }
 
 /* 2. 시간대별 타임라인 섹션 (Vertical Timeline) */
