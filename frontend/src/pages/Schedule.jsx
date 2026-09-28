@@ -913,160 +913,387 @@ function Schedule() {
                 </button>
               </div>
 
-              {/* 일정 목록 (타이틀 위주 아코디언) */}
-              <div className="day-events-list">
-                {selectedDayAllEvents.length === 0 ? (
-                  <div className="day-empty-box">
-                    <span className="day-empty-icon">☕</span>
-                    <p>이 날짜에 등록된 일정이 없습니다.</p>
-                    <button
-                      className="secondary-btn"
-                      onClick={() => openCreateModal(dayDetailDate)}
-                    >
-                      + 새 일정 추가하기
-                    </button>
-                  </div>
-                ) : (
-                  selectedDayAllEvents.map(ev => {
-                    const isHoliday = !!ev.is_holiday
-                    const color = isHoliday ? '#ef4444' : (GOOGLE_COLORS[ev.color_id] || '#3b82f6')
-                    const evStartStr = ev.start ? ev.start.slice(0, 10) : ''
-                    const evEndStr = ev.end ? ev.end.slice(0, 10) : evStartStr
-                    const isMultiDay = evStartStr !== evEndStr
-                    const timeStr = isHoliday
-                      ? '하루 종일'
-                      : (ev.all_day
-                          ? '하루 종일'
-                          : (isMultiDay
-                              ? `${ev.start?.slice(0, 10)} ${ev.start?.slice(11, 16)} ~ ${ev.end?.slice(0, 10)} ${ev.end?.slice(11, 16)}`
-                              : `${ev.start?.slice(11, 16)} ~ ${ev.end?.slice(11, 16)}`))
-
-                    const isExpanded = expandedEventIds.has(ev.id)
-
-                    return (
-                      <div
-                        key={ev.id}
-                        className={`day-event-accordion-card ${isHoliday ? 'holiday-card' : ''} ${ev.is_routine ? 'routine-card' : ''} ${isExpanded ? 'expanded' : 'collapsed'}`}
-                        style={{ borderLeftColor: color }}
+              {/* ─────────────────────────────────────────────────────────────
+                  일정 목록: 종일 일정 상단 분리 + 시간순 세로 타임라인 뷰
+                  ───────────────────────────────────────────────────────────── */}
+              {(() => {
+                if (selectedDayAllEvents.length === 0) {
+                  return (
+                    <div className="day-empty-box">
+                      <span className="day-empty-icon">☕</span>
+                      <p>이 날짜에 등록된 일정이 없습니다.</p>
+                      <button
+                        className="secondary-btn"
+                        onClick={() => openCreateModal(dayDetailDate)}
                       >
-                        {/* 1. 타이틀 헤더 바 (클릭 시 아코디언 토글) */}
-                        <div
-                          className="day-event-accordion-header"
-                          onClick={() => toggleEventExpand(ev.id)}
-                          role="button"
-                          tabIndex={0}
-                          title={isExpanded ? '클릭하여 상세 접기' : '클릭하여 상세 내용 펼치기'}
-                        >
-                          <div className="accordion-header-left">
-                            <span className="accordion-event-icon">
-                              {isHoliday ? '🚩' : ev.is_comjjang ? '💻' : ev.is_routine ? '🚲' : '📌'}
-                            </span>
-                            <div className="accordion-title-meta-wrap">
-                              <h4 className="accordion-event-title">
-                                {ev.title}
-                              </h4>
-                              <div className="accordion-badge-group">
-                                <span className="accordion-time-badge">⏱️ {timeStr}</span>
-                                {isHoliday && <span className="holiday-badge-tag">🔴 법정 공휴일</span>}
-                                {ev.is_comjjang && <span className="comjjang-tag">💻 컴짱 회의</span>}
-                                {ev.is_routine && <span className="routine-tag">🚲 루틴</span>}
-                                {ev.location && <span className="accordion-location-preview">📍 {ev.location}</span>}
-                              </div>
-                            </div>
-                          </div>
+                        + 새 일정 추가하기
+                      </button>
+                    </div>
+                  )
+                }
 
-                          <div className="accordion-header-right">
-                            {!isHoliday && (
-                              <div className="accordion-quick-actions" onClick={e => e.stopPropagation()}>
-                                <button
-                                  type="button"
-                                  className="icon-btn edit"
-                                  title="수정하기"
-                                  onClick={() => openEditModal(ev)}
-                                >
-                                  ✏️
-                                </button>
-                                <button
-                                  type="button"
-                                  className="icon-btn delete"
-                                  title="삭제하기"
-                                  onClick={() => handleDeleteEvent(ev.id)}
-                                >
-                                  🗑️
-                                </button>
-                              </div>
-                            )}
-                            <div className={`accordion-chevron-box ${isExpanded ? 'expanded' : ''}`}>
-                              <span className="chevron-icon">▼</span>
-                            </div>
-                          </div>
+                // 1. 종일/연속 일정과 시간 지정 일정 분리
+                const allDayList = []
+                const timedList = []
+
+                selectedDayAllEvents.forEach(ev => {
+                  const evStartStr = ev.start ? ev.start.slice(0, 10) : ''
+                  const evEndStr = ev.end ? ev.end.slice(0, 10) : evStartStr
+                  const isMultiDay = evStartStr !== evEndStr
+
+                  if (ev.is_holiday || ev.all_day || isMultiDay || !ev.start || ev.start.length <= 10) {
+                    allDayList.push(ev)
+                  } else {
+                    timedList.push(ev)
+                  }
+                })
+
+                // 종일 일정 정렬: 공휴일 -> 컴짱 -> 일반
+                allDayList.sort((a, b) => {
+                  if (a.is_holiday && !b.is_holiday) return -1
+                  if (!a.is_holiday && b.is_holiday) return 1
+                  if (a.is_comjjang && !b.is_comjjang) return -1
+                  if (!a.is_comjjang && b.is_comjjang) return 1
+                  return (a.title || '').localeCompare(b.title || '')
+                })
+
+                // 시간 지정 일정 정렬: 시작 시간(HH:MM) 오름차순 (08:30 -> 12:30 -> 17:30 -> 18:20 -> 19:20 -> 20:00 -> 21:00)
+                timedList.sort((a, b) => {
+                  const timeA = (a.start && a.start.length > 10) ? a.start.slice(11, 16) : '00:00'
+                  const timeB = (b.start && b.start.length > 10) ? b.start.slice(11, 16) : '00:00'
+                  return timeA.localeCompare(timeB)
+                })
+
+                const isTodayDate = dayDetailDate === todayStr
+                const nowTimeStr = new Date().toTimeString().slice(0, 5) // HH:MM
+
+                // 시간 계산 헬퍼
+                const getTimeMeta = (startStr, endStr) => {
+                  if (!startStr || startStr.length < 16) {
+                    return { startTime: '', endTime: '', duration: '', period: '종일', periodIcon: '📌' }
+                  }
+                  const startTime = startStr.slice(11, 16)
+                  const endTime = (endStr && endStr.length >= 16) ? endStr.slice(11, 16) : ''
+                  const hour = parseInt(startTime.slice(0, 2), 10)
+                  
+                  let period = '오전'
+                  let periodIcon = '🌅'
+                  if (hour < 6) { period = '새벽'; periodIcon = '🌌' }
+                  else if (hour < 12) { period = '오전'; periodIcon = '🌅' }
+                  else if (hour < 18) { period = '오후'; periodIcon = '☀️' }
+                  else if (hour < 22) { period = '저녁'; periodIcon = '🌙' }
+                  else { period = '밤'; periodIcon = '🌃' }
+
+                  let duration = ''
+                  if (startTime && endTime) {
+                    const [sH, sM] = startTime.split(':').map(Number)
+                    const [eH, eM] = endTime.split(':').map(Number)
+                    const diff = (eH * 60 + eM) - (sH * 60 + sM)
+                    if (diff > 0) {
+                      const h = Math.floor(diff / 60)
+                      const m = diff % 60
+                      if (h > 0 && m > 0) duration = `${h}시간 ${m}분`
+                      else if (h > 0) duration = `${h}시간`
+                      else duration = `${m}분`
+                    }
+                  }
+
+                  return { startTime, endTime, duration, period, periodIcon, hour }
+                }
+
+                // 현재 시간선 삽입 위치 계산
+                let nowInserted = false
+
+                return (
+                  <div className="day-flow-container">
+                    {/* ── 1. 하루 종일 & 기간 진행 중인 일정 랙 (All-day Rack) ── */}
+                    {allDayList.length > 0 && (
+                      <div className="day-allday-rack">
+                        <div className="allday-rack-header">
+                          <span className="rack-icon">📌</span>
+                          <span className="rack-title">하루 종일 & 연속 진행 중인 일정</span>
+                          <span className="rack-count">{allDayList.length}</span>
                         </div>
 
-                        {/* 2. 펼쳐진 상세 내용 영역 */}
-                        {isExpanded && (
-                          <div className="day-event-accordion-body">
-                            <div className="detail-meta-list">
-                              <div className="detail-meta-item">
-                                <span className="meta-item-label">⏱️ 일시:</span>
-                                <span className="meta-item-value">{timeStr}</span>
-                              </div>
-                              {ev.location && (
-                                <div className="detail-meta-item">
-                                  <span className="meta-item-label">📍 장소/링크:</span>
-                                  <span className="meta-item-value">{ev.location}</span>
-                                </div>
-                              )}
-                              <div className="detail-meta-item">
-                                <span className="meta-item-label">🏷️ 캘린더 분류:</span>
-                                <span className="meta-item-value" style={{ color: color }}>
-                                  {isHoliday ? '대한민국 법정 공휴일' : ev.is_comjjang ? '💻 컴짱 회의 일정' : ev.is_routine ? '🚲 일상 루틴' : (ev.source === 'google' ? 'Google Calendar' : 'Bill Studio')}
-                                </span>
-                              </div>
-                            </div>
+                        <div className="allday-rack-list">
+                          {allDayList.map(ev => {
+                            const isHoliday = !!ev.is_holiday
+                            const color = isHoliday ? '#ef4444' : (GOOGLE_COLORS[ev.color_id] || '#3b82f6')
+                            const evStartStr = ev.start ? ev.start.slice(0, 10) : ''
+                            const evEndStr = ev.end ? ev.end.slice(0, 10) : evStartStr
+                            const isMultiDay = evStartStr !== evEndStr
+                            const timeStr = isHoliday
+                              ? '법정 공휴일'
+                              : (ev.all_day ? '하루 종일' : `${evStartStr} ~ ${evEndStr}`)
+                            const isExpanded = expandedEventIds.has(ev.id)
 
-                            {/* 상세 메모 / 체크리스트 */}
-                            <div className="detail-desc-section">
-                              <div className="desc-section-header">
-                                <span className="desc-icon">📝</span>
-                                <span className="desc-title">상세 메모 & 내용</span>
-                              </div>
-                              {ev.description ? (
-                                <div className="detail-desc-content">
-                                  {ev.description}
-                                </div>
-                              ) : (
-                                <div className="detail-desc-empty">
-                                  등록된 상세 메모가 없습니다.
-                                </div>
-                              )}
-                            </div>
+                            return (
+                              <div
+                                key={ev.id}
+                                className={`allday-event-card ${isHoliday ? 'holiday-card' : ''} ${ev.is_comjjang ? 'comjjang-card' : ''} ${ev.is_routine ? 'routine-card' : ''} ${isExpanded ? 'expanded' : 'collapsed'}`}
+                                style={{ borderLeftColor: color }}
+                              >
+                                <div
+                                  className="allday-card-header"
+                                  onClick={() => toggleEventExpand(ev.id)}
+                                  role="button"
+                                  tabIndex={0}
+                                >
+                                  <div className="allday-card-left">
+                                    <span className="allday-icon">
+                                      {isHoliday ? '🚩' : ev.is_comjjang ? '💻' : ev.is_routine ? '🚲' : '📌'}
+                                    </span>
+                                    <div className="allday-title-group">
+                                      <h4 className="allday-title">{ev.title}</h4>
+                                      <div className="allday-badges">
+                                        <span className="allday-badge-time">⏱️ {timeStr}</span>
+                                        {isHoliday && <span className="holiday-badge-tag">🔴 공휴일</span>}
+                                        {ev.is_comjjang && <span className="comjjang-tag">💻 컴짱 회의</span>}
+                                        {ev.is_routine && <span className="routine-tag">🚲 루틴</span>}
+                                        {ev.location && <span className="allday-loc">📍 {ev.location}</span>}
+                                      </div>
+                                    </div>
+                                  </div>
 
-                            {/* 하단 수정/삭제 버튼 */}
-                            {!isHoliday && (
-                              <div className="accordion-body-actions">
-                                <button
-                                  type="button"
-                                  className="secondary-btn small-btn"
-                                  onClick={() => openEditModal(ev)}
-                                >
-                                  ✏️ 일정 수정
-                                </button>
-                                <button
-                                  type="button"
-                                  className="danger-btn small-btn"
-                                  onClick={() => handleDeleteEvent(ev.id)}
-                                >
-                                  🗑️ 삭제
-                                </button>
+                                  <div className="allday-card-right">
+                                    {!isHoliday && (
+                                      <div className="accordion-quick-actions" onClick={e => e.stopPropagation()}>
+                                        <button
+                                          type="button"
+                                          className="icon-btn edit"
+                                          title="수정하기"
+                                          onClick={() => openEditModal(ev)}
+                                        >
+                                          ✏️
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="icon-btn delete"
+                                          title="삭제하기"
+                                          onClick={() => handleDeleteEvent(ev.id)}
+                                        >
+                                          🗑️
+                                        </button>
+                                      </div>
+                                    )}
+                                    <span className="allday-chevron">{isExpanded ? '▲' : '▼'}</span>
+                                  </div>
+                                </div>
+
+                                {isExpanded && (
+                                  <div className="allday-card-body">
+                                    {ev.description && (
+                                      <p className="allday-desc">{ev.description}</p>
+                                    )}
+                                    <div className="allday-meta-row">
+                                      <span>🏷️ {ev.source === 'google' ? 'Google Calendar' : 'Bill Studio'}</span>
+                                      {ev.location && <span>📍 {ev.location}</span>}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        )}
+                            )
+                          })}
+                        </div>
                       </div>
-                    )
-                  })
-                )}
-              </div>
+                    )}
+
+                    {/* ── 2. 시간대별 세로 타임라인 (Vertical Day Timeline) ── */}
+                    {timedList.length > 0 && (
+                      <div className="day-timeline-section">
+                        <div className="timeline-section-header">
+                          <span className="timeline-section-icon">⏱️</span>
+                          <span className="timeline-section-title">하루 시간대별 타임라인 흐름</span>
+                          <span className="timeline-count-badge">{timedList.length}개 일정</span>
+                        </div>
+
+                        <div className="timeline-stream">
+                          {timedList.map((ev, idx) => {
+                            const color = GOOGLE_COLORS[ev.color_id] || '#3b82f6'
+                            const meta = getTimeMeta(ev.start, ev.end)
+                            const isExpanded = expandedEventIds.has(ev.id)
+                            
+                            // 과거/미래/현재 여부
+                            const isPast = isTodayDate && meta.startTime < nowTimeStr
+                            const isNow = isTodayDate && meta.startTime <= nowTimeStr && (meta.endTime ? meta.endTime >= nowTimeStr : meta.startTime === nowTimeStr)
+
+                            // 현재 시간선 표시 체크
+                            let showNowLineBefore = false
+                            if (isTodayDate && !nowInserted) {
+                              if (nowTimeStr < meta.startTime) {
+                                showNowLineBefore = true
+                                nowInserted = true
+                              } else if (idx === timedList.length - 1 && nowTimeStr >= meta.startTime) {
+                                // 마지막 일정 뒤에 현재 시간이 있을 때
+                                // 하단에 처리
+                              }
+                            }
+
+                            return (
+                              <div key={ev.id} className="timeline-entry-wrapper">
+                                {/* 현재 시간 인디케이터 라인 */}
+                                {showNowLineBefore && (
+                                  <div className="timeline-now-indicator">
+                                    <div className="now-dot-pulse" />
+                                    <div className="now-label">
+                                      <span className="now-icon">🔴</span> 현재 {nowTimeStr}
+                                    </div>
+                                    <div className="now-line" />
+                                  </div>
+                                )}
+
+                                <div className={`timeline-entry-row ${isPast ? 'is-past' : ''} ${isNow ? 'is-current-now' : ''}`}>
+                                  {/* 왼쪽 1: 큰 시간 컬럼 */}
+                                  <div className="timeline-time-col">
+                                    <span className="time-period-tag">
+                                      {meta.periodIcon} {meta.period}
+                                    </span>
+                                    <span className="time-start-main">{meta.startTime}</span>
+                                    {meta.endTime && (
+                                      <span className="time-end-sub">
+                                        ~ {meta.endTime}
+                                      </span>
+                                    )}
+                                    {meta.duration && (
+                                      <span className="time-duration-chip">
+                                        {meta.duration}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* 가운데 2: 세로 레일 트랙 및 노드 점 */}
+                                  <div className="timeline-track-col">
+                                    <div className="timeline-node" style={{ backgroundColor: color, boxShadow: `0 0 10px ${color}80` }}>
+                                      <div className="timeline-node-inner" />
+                                    </div>
+                                    <div className="timeline-line" />
+                                  </div>
+
+                                  {/* 오른쪽 3: 인터랙티브 아코디언 일정 카드 */}
+                                  <div
+                                    className={`timeline-card ${isExpanded ? 'expanded' : 'collapsed'}`}
+                                    style={{ borderLeftColor: color }}
+                                  >
+                                    <div
+                                      className="timeline-card-header"
+                                      onClick={() => toggleEventExpand(ev.id)}
+                                      role="button"
+                                      tabIndex={0}
+                                    >
+                                      <div className="timeline-card-title-group">
+                                        <div className="timeline-card-title-row">
+                                          <span className="timeline-item-icon">
+                                            {ev.is_comjjang ? '💻' : ev.is_routine ? '🚲' : '📌'}
+                                          </span>
+                                          <h4 className="timeline-item-title">{ev.title}</h4>
+                                        </div>
+
+                                        <div className="timeline-item-badges">
+                                          {ev.is_comjjang && <span className="comjjang-tag">💻 컴짱 회의</span>}
+                                          {ev.is_routine && <span className="routine-tag">🚲 루틴</span>}
+                                          {ev.location && <span className="timeline-loc-badge">📍 {ev.location}</span>}
+                                        </div>
+                                      </div>
+
+                                      <div className="timeline-card-actions">
+                                        <div className="accordion-quick-actions" onClick={e => e.stopPropagation()}>
+                                          <button
+                                            type="button"
+                                            className="icon-btn edit"
+                                            title="수정하기"
+                                            onClick={() => openEditModal(ev)}
+                                          >
+                                            ✏️
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="icon-btn delete"
+                                            title="삭제하기"
+                                            onClick={() => handleDeleteEvent(ev.id)}
+                                          >
+                                            🗑️
+                                          </button>
+                                        </div>
+                                        <span className="timeline-chevron">{isExpanded ? '▲' : '▼'}</span>
+                                      </div>
+                                    </div>
+
+                                    {/* 펼쳐졌을 때의 상세 내용 */}
+                                    {isExpanded && (
+                                      <div className="timeline-card-body">
+                                        <div className="detail-meta-list">
+                                          <div className="detail-meta-item">
+                                            <span className="meta-item-label">⏱️ 일시:</span>
+                                            <span className="meta-item-value">
+                                              {meta.startTime} ~ {meta.endTime || '종료 미정'} {meta.duration && `(${meta.duration})`}
+                                            </span>
+                                          </div>
+                                          {ev.location && (
+                                            <div className="detail-meta-item">
+                                              <span className="meta-item-label">📍 장소:</span>
+                                              <span className="meta-item-value">{ev.location}</span>
+                                            </div>
+                                          )}
+                                          <div className="detail-meta-item">
+                                            <span className="meta-item-label">🏷️ 분류:</span>
+                                            <span className="meta-item-value" style={{ color: color }}>
+                                              {ev.is_comjjang ? '💻 컴짱 회의' : ev.is_routine ? '🚲 일상 루틴' : (ev.source === 'google' ? 'Google Calendar' : 'Bill Studio')}
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        {ev.description && (
+                                          <div className="detail-desc-section">
+                                            <div className="desc-section-header">
+                                              <span className="desc-icon">📝</span>
+                                              <span className="desc-title">상세 메모</span>
+                                            </div>
+                                            <div className="detail-desc-content">
+                                              {ev.description}
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        <div className="accordion-body-actions">
+                                          <button
+                                            type="button"
+                                            className="secondary-btn small-btn"
+                                            onClick={() => openEditModal(ev)}
+                                          >
+                                            ✏️ 일정 수정
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="danger-btn small-btn"
+                                            onClick={() => handleDeleteEvent(ev.id)}
+                                          >
+                                            🗑️ 삭제
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+
+                          {/* 마지막 일정 뒤에 현재 시간이 있는 경우 */}
+                          {isTodayDate && !nowInserted && (
+                            <div className="timeline-now-indicator last-now">
+                              <div className="now-dot-pulse" />
+                              <div className="now-label">
+                                <span className="now-icon">🔴</span> 현재 {nowTimeStr}
+                              </div>
+                              <div className="now-line" />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
 
             <div className="modal-footer">
