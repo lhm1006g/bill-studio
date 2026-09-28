@@ -198,7 +198,9 @@ export default function FloatingAiAssistant() {
     { id: 'ollama:gemma3:12b', name: 'Gemma 3 (로컬)' }
   ])
   const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash-medium')
-  const [sessionId, setSessionId] = useState(null)
+  const [sessionId, setSessionId] = useState(() => localStorage.getItem('floating_ai_session_id') || null)
+  const [sessions, setSessions] = useState([])
+  const [showHistory, setShowHistory] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingText, setStreamingText] = useState('')
 
@@ -220,7 +222,21 @@ export default function FloatingAiAssistant() {
     ]
   }
 
-  // 모델 목록 로드
+  // 1. 모델 목록 및 세션 목록 로드
+  const fetchSessions = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/sessions`)
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data)) {
+          setSessions(data)
+        }
+      }
+    } catch (e) {
+      console.error('세션 목록 로드 실패:', e)
+    }
+  }, [])
+
   useEffect(() => {
     fetch(`${API_BASE}/models`)
       .then(res => res.json())
@@ -230,7 +246,52 @@ export default function FloatingAiAssistant() {
         }
       })
       .catch(() => {})
+
+    fetchSessions()
+  }, [fetchSessions])
+
+  // 2. 특정 세션의 메시지 불러오기
+  const loadSessionMessages = useCallback(async (sid) => {
+    if (!sid) return
+    try {
+      const res = await fetch(`${API_BASE}/sessions/${sid}/messages`)
+      if (res.ok) {
+        const msgs = await res.json()
+        if (Array.isArray(msgs) && msgs.length > 0) {
+          setMessages(msgs.map(m => ({
+            id: m.id,
+            role: m.role,
+            content: m.content
+          })))
+          setSessionId(sid)
+          localStorage.setItem('floating_ai_session_id', sid)
+          setShowHistory(false)
+          return
+        }
+      }
+    } catch (e) {
+      console.error('대화 내용 로드 실패:', e)
+    }
+    // 메시지가 없거나 실패 시 기본 웰컴
+    setSessionId(sid)
+    localStorage.setItem('floating_ai_session_id', sid)
+    setMessages([
+      {
+        id: 'welcome',
+        role: 'assistant',
+        content: '반갑습니다, Bill님! 무엇을 도와드릴까요?\n현재 페이지 작업과 관련된 질문도 언제든 환영합니다. ✨'
+      }
+    ])
+    setShowHistory(false)
   }, [])
+
+  // 3. 컴포넌트 마운트 시 저장된 세션 복원
+  useEffect(() => {
+    const savedSid = localStorage.getItem('floating_ai_session_id')
+    if (savedSid) {
+      loadSessionMessages(savedSid)
+    }
+  }, [loadSessionMessages])
 
   // 단축키 (Cmd + J / Ctrl + J) 리스너
   useEffect(() => {
@@ -239,44 +300,55 @@ export default function FloatingAiAssistant() {
         e.preventDefault()
         setIsOpen(prev => !prev)
       } else if (e.key === 'Escape' && isOpen) {
-        setIsOpen(false)
+        if (showHistory) {
+          setShowHistory(false)
+        } else {
+          setIsOpen(false)
+        }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen])
+  }, [isOpen, showHistory])
 
   // 자동 스크롤
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !showHistory) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [messages, streamingText, isOpen])
+  }, [messages, streamingText, isOpen, showHistory])
 
-  // 창 열릴 때 포커스
+  // 창 열릴 때 포커스 및 세션 갱신
   useEffect(() => {
     if (isOpen) {
+      fetchSessions()
       setTimeout(() => {
         textareaRef.current?.focus()
       }, 150)
     }
-  }, [isOpen])
+  }, [isOpen, fetchSessions])
 
   // 세션 생성 / 보장
-  const ensureSession = async () => {
+  const ensureSession = async (firstMessageText = '') => {
     if (sessionId) return sessionId
     try {
+      const title = firstMessageText 
+        ? (firstMessageText.length > 25 ? `${firstMessageText.slice(0, 25)}...` : firstMessageText)
+        : `플로팅 채팅 (${new Date().toLocaleTimeString().slice(0, 5)})`
+
       const res = await fetch(`${API_BASE}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: `플로팅 채팅 (${new Date().toLocaleTimeString().slice(0, 5)})`,
+          title,
           model: selectedModel,
           preset: pageContext.preset || 'general'
         })
       })
       const data = await res.json()
       setSessionId(data.id)
+      localStorage.setItem('floating_ai_session_id', data.id)
+      fetchSessions()
       return data.id
     } catch (e) {
       console.error('세션 생성 에러:', e)
@@ -296,7 +368,7 @@ export default function FloatingAiAssistant() {
     setStreamingText('')
 
     try {
-      const currentSid = await ensureSession()
+      const currentSid = await ensureSession(textToSend)
       abortControllerRef.current = new AbortController()
 
       const response = await fetch(`${API_BASE}/sessions/${currentSid}/chat`, {
@@ -362,6 +434,8 @@ export default function FloatingAiAssistant() {
         ...prev,
         { id: `a_${Date.now()}`, role: 'assistant', content: accumulated || '답변을 생성하지 못했습니다.' }
       ])
+      // 세션 목록 최신화 (메시지 수 및 최신순 정렬 갱신)
+      fetchSessions()
     } catch (err) {
       if (err.name !== 'AbortError') {
         setMessages(prev => [
@@ -391,10 +465,11 @@ export default function FloatingAiAssistant() {
     setStreamingText('')
   }
 
-  // 대화 초기화
+  // 새 대화 시작 (초기화)
   const handleClear = () => {
     if (isStreaming) handleStop()
     setSessionId(null)
+    localStorage.removeItem('floating_ai_session_id')
     setMessages([
       {
         id: 'welcome_new',
@@ -402,6 +477,22 @@ export default function FloatingAiAssistant() {
         content: '새로운 대화가 시작되었습니다! 무엇을 도와드릴까요? ✨'
       }
     ])
+    setShowHistory(false)
+  }
+
+  // 세션 삭제
+  const handleDeleteSession = async (sid, e) => {
+    e.stopPropagation()
+    if (!window.confirm('이 대화 기록을 삭제하시겠습니까?')) return
+    try {
+      await fetch(`${API_BASE}/sessions/${sid}`, { method: 'DELETE' })
+      if (sessionId === sid) {
+        handleClear()
+      }
+      fetchSessions()
+    } catch (err) {
+      console.error('세션 삭제 실패:', err)
+    }
   }
 
   // 전체 화면으로 이동
@@ -464,11 +555,23 @@ export default function FloatingAiAssistant() {
                 ))}
               </select>
 
-              {/* 새 대화 */}
+              {/* 📜 이전 대화 목록 (히스토리) 토글 버튼 */}
+              <button
+                className={`floating-tool-btn ${showHistory ? 'active' : ''}`}
+                onClick={() => setShowHistory(prev => !prev)}
+                title="이전 대화 목록 보기"
+              >
+                📜
+                {sessions.length > 0 && (
+                  <span className="tool-btn-badge">{sessions.length}</span>
+                )}
+              </button>
+
+              {/* 새 대화 (초기화) */}
               <button
                 className="floating-tool-btn"
                 onClick={handleClear}
-                title="대화 초기화"
+                title="새 대화 시작"
               >
                 🧹
               </button>
@@ -493,90 +596,163 @@ export default function FloatingAiAssistant() {
             </div>
           </div>
 
-          {/* 퀵 프롬프트 칩 */}
-          <div className="floating-chips-bar">
-            {pageContext.chips.map((chip, idx) => (
-              <button
-                key={idx}
-                className="floating-chip"
-                onClick={() => handleSend(chip)}
-                disabled={isStreaming}
-              >
-                {chip}
-              </button>
-            ))}
-          </div>
+          {/* 📜 이전 대화 목록 드로어 (showHistory가 true일 때 노출) */}
+          {showHistory ? (
+            <div className="floating-history-drawer">
+              <div className="history-drawer-header">
+                <div className="history-drawer-title-group">
+                  <span className="history-icon">📜</span>
+                  <span className="history-title">이전 대화 기록</span>
+                  <span className="history-count-badge">{sessions.length}</span>
+                </div>
+                <button
+                  type="button"
+                  className="history-new-chat-btn"
+                  onClick={() => {
+                    handleClear()
+                    setShowHistory(false)
+                  }}
+                >
+                  ✨ 새 대화
+                </button>
+              </div>
 
-          {/* 메시지 리스트 */}
-          <div className="floating-messages-area">
-            {messages.map(msg => (
-              <div
-                key={msg.id}
-                className={`floating-message-row ${msg.role === 'user' ? 'user-row' : 'assistant-row'}`}
-              >
-                {msg.role === 'assistant' && (
-                  <div className="floating-avatar assistant-avatar">✨</div>
+              <div className="history-session-list">
+                {sessions.length === 0 ? (
+                  <div className="history-empty-state">
+                    <span className="history-empty-icon">💬</span>
+                    <p>저장된 이전 대화가 없습니다.</p>
+                  </div>
+                ) : (
+                  sessions.map(s => {
+                    const isCurrent = sessionId === s.id
+                    return (
+                      <div
+                        key={s.id}
+                        className={`history-session-card ${isCurrent ? 'active' : ''}`}
+                        onClick={() => loadSessionMessages(s.id)}
+                      >
+                        <div className="history-card-main">
+                          <div className="history-card-title-row">
+                            <span className="history-chat-bubble-icon">💬</span>
+                            <span className="history-card-title">{s.title || '대화 세션'}</span>
+                            {isCurrent && <span className="history-current-tag">현재</span>}
+                          </div>
+                          {s.last_message && (
+                            <div className="history-card-preview">{s.last_message}</div>
+                          )}
+                          <div className="history-card-meta">
+                            <span className="history-time-badge">
+                              {s.updated_at ? s.updated_at.slice(5, 16) : ''}
+                            </span>
+                            <span className="history-msg-count">
+                              {s.message_count ? `${s.message_count}개 메시지` : '1개 메시지'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="history-delete-btn"
+                          title="대화 삭제"
+                          onClick={(e) => handleDeleteSession(s.id, e)}
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    )
+                  })
                 )}
-                <div className={`floating-bubble ${msg.role === 'user' ? 'user-bubble' : 'assistant-bubble'}`}>
-                  {msg.role === 'user' ? (
-                    <div className="user-plain-text">{msg.content}</div>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* 퀵 프롬프트 칩 */}
+              <div className="floating-chips-bar">
+                {pageContext.chips.map((chip, idx) => (
+                  <button
+                    key={idx}
+                    className="floating-chip"
+                    onClick={() => handleSend(chip)}
+                    disabled={isStreaming}
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+
+              {/* 메시지 리스트 */}
+              <div className="floating-messages-area">
+                {messages.map(msg => (
+                  <div
+                    key={msg.id}
+                    className={`floating-message-row ${msg.role === 'user' ? 'user-row' : 'assistant-row'}`}
+                  >
+                    {msg.role === 'assistant' && (
+                      <div className="floating-avatar assistant-avatar">✨</div>
+                    )}
+                    <div className={`floating-bubble ${msg.role === 'user' ? 'user-bubble' : 'assistant-bubble'}`}>
+                      {msg.role === 'user' ? (
+                        <div className="user-plain-text">{msg.content}</div>
+                      ) : (
+                        <MiniMarkdown content={msg.content} />
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {/* 스트리밍 중인 메시지 */}
+                {isStreaming && (
+                  <div className="floating-message-row assistant-row">
+                    <div className="floating-avatar assistant-avatar">✨</div>
+                    <div className="floating-bubble assistant-bubble streaming">
+                      <MiniMarkdown content={streamingText} />
+                      <span className="streaming-cursor">▋</span>
+                    </div>
+                  </div>
+                )}
+
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* 입력창 바 */}
+              <div className="floating-input-container">
+                <textarea
+                  ref={textareaRef}
+                  className="floating-textarea"
+                  placeholder="무엇이든 물어보세요... (Shift+Enter 줄바꿈)"
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  onKeyDown={handleKeyDownInput}
+                  rows={2}
+                  disabled={isStreaming}
+                />
+
+                <div className="floating-input-actions">
+                  {isStreaming ? (
+                    <button
+                      type="button"
+                      className="floating-stop-btn"
+                      onClick={handleStop}
+                      title="생성 중지"
+                    >
+                      ⏹ 중지
+                    </button>
                   ) : (
-                    <MiniMarkdown content={msg.content} />
+                    <button
+                      type="button"
+                      className="floating-send-btn"
+                      onClick={() => handleSend()}
+                      disabled={!inputText.trim()}
+                      title="전송 (Enter)"
+                    >
+                      🚀
+                    </button>
                   )}
                 </div>
               </div>
-            ))}
-
-            {/* 스트리밍 중인 메시지 */}
-            {isStreaming && (
-              <div className="floating-message-row assistant-row">
-                <div className="floating-avatar assistant-avatar">✨</div>
-                <div className="floating-bubble assistant-bubble streaming">
-                  <MiniMarkdown content={streamingText} />
-                  <span className="streaming-cursor">▋</span>
-                </div>
-              </div>
-            )}
-
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* 입력창 바 */}
-          <div className="floating-input-container">
-            <textarea
-              ref={textareaRef}
-              className="floating-textarea"
-              placeholder="무엇이든 물어보세요... (Shift+Enter 줄바꿈)"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={handleKeyDownInput}
-              rows={2}
-              disabled={isStreaming}
-            />
-
-            <div className="floating-input-actions">
-              {isStreaming ? (
-                <button
-                  type="button"
-                  className="floating-stop-btn"
-                  onClick={handleStop}
-                  title="생성 중지"
-                >
-                  ⏹ 중지
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="floating-send-btn"
-                  onClick={() => handleSend()}
-                  disabled={!inputText.trim()}
-                  title="전송 (Enter)"
-                >
-                  🚀
-                </button>
-              )}
-            </div>
-          </div>
+            </>
+          )}
         </div>
       )}
     </>
