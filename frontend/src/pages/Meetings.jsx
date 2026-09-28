@@ -5,6 +5,156 @@ const API_BASE = 'http://localhost:8000/api/meetings'
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
 
+// 타임코드 문자열(00:00, 11:45 등)을 초 단위로 변환
+function timeStrToSeconds(str) {
+  if (!str) return 0
+  const clean = str.trim()
+  const parts = clean.split(':')
+  if (parts.length === 2) {
+    return parseInt(parts[0], 10) * 60 + parseFloat(parts[1])
+  } else if (parts.length === 3) {
+    return parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseFloat(parts[2])
+  }
+  return 0
+}
+
+// **볼드** 및 강조 텍스트 리치 렌더링 헬퍼
+function renderFormattedText(text) {
+  if (!text) return ''
+  const parts = text.split(/(\*\*[^*]+\*\*)/g)
+  return parts.map((part, idx) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={idx} className="summary-highlight">{part.slice(2, -2)}</strong>
+    }
+    return part
+  })
+}
+
+// 마크다운 회의록을 인터랙티브 카드 데이터로 구조화 파싱
+function parseMeetingSummary(md) {
+  if (!md) return null
+
+  const result = {
+    title: '',
+    keySummary: [],
+    agendaList: [],
+    decisions: [],
+    tags: [],
+    isStructured: false,
+  }
+
+  const sections = md.split(/(?=^##\s+)/m)
+
+  for (const sec of sections) {
+    const trimmed = sec.trim()
+    if (!trimmed) continue
+
+    if (trimmed.startsWith('# ') && !result.title) {
+      const titleMatch = trimmed.match(/^#\s+(.+)$/m)
+      if (titleMatch) {
+        result.title = titleMatch[1].replace(/\[제목\]/g, '').replace(/^\[|\]$/g, '').trim()
+      }
+    }
+
+    if (trimmed.includes('핵심 요약')) {
+      const lines = trimmed.split('\n').slice(1)
+      for (const line of lines) {
+        const l = line.trim()
+        if (l.startsWith('-') || l.startsWith('*') || /^\d+\./.test(l)) {
+          const clean = l.replace(/^[-*]\s*(\d+\.\s*)?/, '').replace(/^\d+\.\s*/, '').trim()
+          if (clean) result.keySummary.push(clean)
+        }
+      }
+      continue
+    }
+
+    if (trimmed.includes('주요 논의')) {
+      const lines = trimmed.split('\n').slice(1)
+      let currentItem = null
+
+      for (const line of lines) {
+        const l = line.trim()
+        if (!l) continue
+
+        const isHeader = l.startsWith('- **') || l.startsWith('* **') || l.startsWith('###')
+        if (isHeader) {
+          if (currentItem) {
+            result.agendaList.push(currentItem)
+          }
+
+          let timeStr = ''
+          let titleStr = ''
+          let descStr = ''
+
+          const fullBoldMatch = l.match(/^[-*]\s*\*\*(.+?)\*\*[:\s]*(.*)/)
+          const h3Match = l.match(/^###\s*(.+)/)
+
+          if (fullBoldMatch) {
+            const boldPart = fullBoldMatch[1]
+            descStr = fullBoldMatch[2] || ''
+
+            const timeMatch = boldPart.match(/\[?(\d{1,2}:\d{2}\s*(?:~|-)\s*\d{1,2}:\d{2}|\d{1,2}:\d{2})\]?/)
+            if (timeMatch) {
+              timeStr = timeMatch[1]
+              titleStr = boldPart.replace(timeMatch[0], '').replace(/^\[|\]$/g, '').trim()
+            } else {
+              titleStr = boldPart.trim()
+            }
+          } else if (h3Match) {
+            titleStr = h3Match[1].trim()
+          }
+
+          let startSec = 0
+          if (timeStr) {
+            const firstTime = timeStr.split(/[~-]/)[0].trim()
+            startSec = timeStrToSeconds(firstTime)
+          }
+
+          currentItem = {
+            id: `agenda_${result.agendaList.length + 1}`,
+            timeRange: timeStr,
+            startSec,
+            title: titleStr || '논의 안건',
+            details: descStr ? [descStr] : [],
+          }
+        } else if (currentItem) {
+          const detailClean = l.replace(/^[-*]\s*/, '').trim()
+          if (detailClean) {
+            currentItem.details.push(detailClean)
+          }
+        }
+      }
+      if (currentItem) {
+        result.agendaList.push(currentItem)
+      }
+      continue
+    }
+
+    if (trimmed.includes('최종 결정')) {
+      const lines = trimmed.split('\n').slice(1)
+      for (const line of lines) {
+        const l = line.trim()
+        if (l.startsWith('-') || l.startsWith('*') || /^\d+\./.test(l)) {
+          const clean = l.replace(/^[-*]\s*(\d+\.\s*)?/, '').replace(/^\d+\.\s*/, '').trim()
+          if (clean) result.decisions.push(clean)
+        }
+      }
+      continue
+    }
+
+    if (trimmed.includes('태그')) {
+      const tagMatches = trimmed.match(/#([\w가-힣]+)/g)
+      if (tagMatches) {
+        result.tags = tagMatches.map(t => t.replace('#', ''))
+      }
+      continue
+    }
+  }
+
+  result.isStructured = result.agendaList.length > 0 || result.keySummary.length > 0 || result.decisions.length > 0
+  return result
+}
+
 function Meetings() {
   const [viewMode, setViewMode] = useState('calendar') // 'calendar' | 'list'
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -14,8 +164,29 @@ function Meetings() {
   // 상세 모달 상태
   const [selectedMeeting, setSelectedMeeting] = useState(null)
   const [detailTab, setDetailTab] = useState('summary') // 'summary' | 'actions' | 'transcript'
+  const [summaryViewMode, setSummaryViewMode] = useState('card') // 'card' | 'raw'
+  const [collapsedAgendas, setCollapsedAgendas] = useState(new Set())
   const [isResummarizing, setIsResummarizing] = useState(false)
   const audioRef = useRef(null)
+
+  // 안건 접기/펼치기 토글
+  const toggleAgendaCollapse = (id) => {
+    setCollapsedAgendas(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // 안건 모두 접기 / 모두 펼치기
+  const toggleAllAgendas = (allIds) => {
+    if (collapsedAgendas.size >= allIds.length) {
+      setCollapsedAgendas(new Set())
+    } else {
+      setCollapsedAgendas(new Set(allIds))
+    }
+  }
 
   // 분석 & 생성 모달 상태
   const [isProcessModalOpen, setIsProcessModalOpen] = useState(false)
@@ -1058,31 +1229,207 @@ function Meetings() {
               </div>
 
               {/* 탭 1: AI 회의록 요약 */}
-              {detailTab === 'summary' && (
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                    <span style={{ fontSize: '0.82rem', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                      ⏱️ <strong>실제 녹음 시간 순서(타임라인)</strong>대로 정리된 회의록입니다.
-                    </span>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <button
-                        className="btn-secondary"
-                        onClick={handleResummarize}
-                        disabled={isResummarizing}
-                        style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', borderColor: '#38bdf8', color: '#38bdf8' }}
-                      >
-                        {isResummarizing ? '⏳ 시간순 요약 중...' : '🔄 녹음 순서대로 다시 요약'}
-                      </button>
-                      <button className="btn-secondary" onClick={handleCopySummary}>
-                        📋 회의록 전체 복사
-                      </button>
+              {detailTab === 'summary' && (() => {
+                const parsed = parseMeetingSummary(selectedMeeting.summary)
+                const allAgendaIds = parsed?.agendaList.map(a => a.id) || []
+                const isAllCollapsed = allAgendaIds.length > 0 && collapsedAgendas.size >= allAgendaIds.length
+
+                return (
+                  <div className="summary-tab-container">
+                    {/* 상단 툴바 */}
+                    <div className="summary-toolbar">
+                      <div className="summary-toolbar-left">
+                        <span className="timeline-badge">
+                          ⏱️ <strong>실제 녹음 시간 순서(타임라인)</strong> 동기화
+                        </span>
+                        {/* 뷰 모드 토글 스위치 */}
+                        <div className="view-mode-toggle">
+                          <button
+                            type="button"
+                            className={`view-mode-btn ${summaryViewMode === 'card' ? 'active' : ''}`}
+                            onClick={() => setSummaryViewMode('card')}
+                          >
+                            🎨 구조화 카드 뷰
+                          </button>
+                          <button
+                            type="button"
+                            className={`view-mode-btn ${summaryViewMode === 'raw' ? 'active' : ''}`}
+                            onClick={() => setSummaryViewMode('raw')}
+                          >
+                            📝 원문 텍스트
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="summary-toolbar-right">
+                        {summaryViewMode === 'card' && allAgendaIds.length > 0 && (
+                          <button
+                            type="button"
+                            className="btn-toolbar-subtle"
+                            onClick={() => toggleAllAgendas(allAgendaIds)}
+                            title={isAllCollapsed ? '모든 안건 펼치기' : '모든 안건 접기'}
+                          >
+                            {isAllCollapsed ? '📂 모두 펼치기' : '📁 모두 접기'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="btn-toolbar-accent"
+                          onClick={handleResummarize}
+                          disabled={isResummarizing}
+                        >
+                          {isResummarizing ? '⏳ 시간순 요약 중...' : '🔄 녹음 순서대로 다시 요약'}
+                        </button>
+                        <button type="button" className="btn-toolbar-subtle" onClick={handleCopySummary}>
+                          📋 전체 복사
+                        </button>
+                      </div>
                     </div>
+
+                    {/* 카드 뷰 */}
+                    {summaryViewMode === 'card' && parsed && parsed.isStructured ? (
+                      <div className="structured-summary-wrapper">
+                        {/* 1. 진행 순서별 3줄 핵심 요약 */}
+                        {parsed.keySummary.length > 0 && (
+                          <div className="summary-section-card highlight-card">
+                            <div className="section-card-header">
+                              <span className="section-card-icon">📌</span>
+                              <h3 className="section-card-title">진행 순서별 핵심 요약</h3>
+                              <span className="section-card-sub">초반 ➔ 중반 ➔ 후반 3단계 요약</span>
+                            </div>
+                            <div className="key-summary-grid">
+                              {parsed.keySummary.map((item, idx) => {
+                                const stepMeta = [
+                                  { label: '1. 회의 초반', icon: '🌅', color: '#38bdf8' },
+                                  { label: '2. 회의 중반', icon: '⚡', color: '#f59e0b' },
+                                  { label: '3. 회의 후반/결론', icon: '🏁', color: '#10b981' },
+                                ][idx] || { label: `${idx + 1}단계`, icon: '💡', color: '#a855f7' }
+
+                                return (
+                                  <div key={idx} className="key-summary-item" style={{ borderLeftColor: stepMeta.color }}>
+                                    <div className="key-summary-item-header" style={{ color: stepMeta.color }}>
+                                      <span>{stepMeta.icon}</span>
+                                      <strong>{stepMeta.label}</strong>
+                                    </div>
+                                    <p className="key-summary-item-text">{renderFormattedText(item)}</p>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 2. 타임라인 주요 논의 사항 로드맵 */}
+                        {parsed.agendaList.length > 0 && (
+                          <div className="summary-section-card agenda-timeline-card">
+                            <div className="section-card-header">
+                              <span className="section-card-icon">🗣️</span>
+                              <h3 className="section-card-title">주요 논의 사항 (타임라인 로드맵)</h3>
+                              <span className="section-card-sub">
+                                💡 타임코드를 클릭하면 해당 구간 녹음 위치로 즉시 이동합니다
+                              </span>
+                            </div>
+
+                            <div className="agenda-timeline-list">
+                              {parsed.agendaList.map((agenda, aIdx) => {
+                                const isCollapsed = collapsedAgendas.has(agenda.id)
+
+                                return (
+                                  <div key={agenda.id} className={`agenda-timeline-item ${isCollapsed ? 'collapsed' : ''}`}>
+                                    <div className="agenda-timeline-indicator">
+                                      <div className="timeline-dot" />
+                                      {aIdx < parsed.agendaList.length - 1 && <div className="timeline-line" />}
+                                    </div>
+
+                                    <div className="agenda-card-box">
+                                      <div
+                                        className="agenda-card-top"
+                                        onClick={() => toggleAgendaCollapse(agenda.id)}
+                                      >
+                                        <div className="agenda-top-left">
+                                          {agenda.timeRange && (
+                                            <button
+                                              type="button"
+                                              className="time-jump-badge"
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                handleSeekAudio(agenda.startSec)
+                                              }}
+                                              title={`${agenda.timeRange} 지점으로 오디오 이동`}
+                                            >
+                                              <span className="jump-icon">🎧</span>
+                                              <span className="jump-time">{agenda.timeRange}</span>
+                                              <span className="jump-label">바로듣기</span>
+                                            </button>
+                                          )}
+                                          <h4 className="agenda-card-heading">
+                                            {renderFormattedText(agenda.title)}
+                                          </h4>
+                                        </div>
+                                        <div className="agenda-top-right">
+                                          <span className="collapse-arrow">{isCollapsed ? '▼' : '▲'}</span>
+                                        </div>
+                                      </div>
+
+                                      {!isCollapsed && agenda.details.length > 0 && (
+                                        <div className="agenda-card-body">
+                                          <ul className="agenda-detail-bullets">
+                                            {agenda.details.map((detail, dIdx) => (
+                                              <li key={dIdx} className="agenda-bullet-point">
+                                                {renderFormattedText(detail)}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 3. 최종 결정 사항 */}
+                        {parsed.decisions.length > 0 && (
+                          <div className="summary-section-card decision-card">
+                            <div className="section-card-header">
+                              <span className="section-card-icon">✅</span>
+                              <h3 className="section-card-title">최종 결정 사항</h3>
+                              <span className="section-card-sub">확정된 정책 및 합의된 방향</span>
+                            </div>
+                            <div className="decision-list">
+                              {parsed.decisions.map((dec, dIdx) => (
+                                <div key={dIdx} className="decision-item">
+                                  <span className="decision-number">{dIdx + 1}</span>
+                                  <p className="decision-text">{renderFormattedText(dec)}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 4. 태그 */}
+                        {parsed.tags.length > 0 && (
+                          <div className="summary-tags-row">
+                            <span className="tag-row-label">🏷️ 키워드 태그:</span>
+                            <div className="tag-badges-wrapper">
+                              {parsed.tags.map((t, idx) => (
+                                <span key={idx} className="rich-tag-chip">#{t}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* 원문 마크다운 텍스트 뷰 (fallback 또는 raw 모드) */
+                      <div className="summary-content-rendered">
+                        {selectedMeeting.summary || '(요약 내용이 없습니다)'}
+                      </div>
+                    )}
                   </div>
-                  <div className="summary-content-rendered">
-                    {selectedMeeting.summary || '(요약 내용이 없습니다)'}
-                  </div>
-                </div>
-              )}
+                )
+              })()}
 
               {/* 탭 2: 액션 아이템 체크리스트 */}
               {detailTab === 'actions' && (
