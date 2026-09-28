@@ -163,6 +163,7 @@ function Meetings() {
 
   // 상세 모달 상태
   const [selectedMeeting, setSelectedMeeting] = useState(null)
+  const [selectedDayList, setSelectedDayList] = useState(null) // { dateStr, displayDate, meetings, unregistered }
   const [detailTab, setDetailTab] = useState('summary') // 'summary' | 'actions' | 'transcript'
   const [summaryViewMode, setSummaryViewMode] = useState('card') // 'card' | 'raw'
   const [collapsedAgendas, setCollapsedAgendas] = useState(new Set())
@@ -822,10 +823,15 @@ function Meetings() {
                   key={idx}
                   className={`day-cell ${!cell.isCurrentMonth ? 'other-month' : ''} ${isToday ? 'is-today' : ''} ${dayUnregistered.length > 0 ? 'has-unregistered' : ''}`}
                   onClick={() => {
-                    if (dayUnregistered.length > 0) {
-                      handleAutoProcess([dayUnregistered[0].rel_path])
-                    } else if (dayMeetings.length > 0) {
-                      handleOpenDetail(dayMeetings[0].id)
+                    if (dayMeetings.length > 0 || dayUnregistered.length > 0) {
+                      const dObj = new Date(cell.dateStr)
+                      const dayName = WEEKDAYS[dObj.getDay()]
+                      setSelectedDayList({
+                        dateStr: cell.dateStr,
+                        displayDate: `${dObj.getFullYear()}년 ${dObj.getMonth() + 1}월 ${dObj.getDate()}일 (${dayName})`,
+                        meetings: dayMeetings,
+                        unregistered: dayUnregistered,
+                      })
                     } else {
                       setMeetingDate(cell.dateStr)
                       setIsProcessModalOpen(true)
@@ -875,6 +881,14 @@ function Meetings() {
                         title={m.title}
                         onClick={(e) => {
                           e.stopPropagation()
+                          const dObj = new Date(cell.dateStr)
+                          const dayName = WEEKDAYS[dObj.getDay()]
+                          setSelectedDayList({
+                            dateStr: cell.dateStr,
+                            displayDate: `${dObj.getFullYear()}년 ${dObj.getMonth() + 1}월 ${dObj.getDate()}일 (${dayName})`,
+                            meetings: dayMeetings,
+                            unregistered: dayUnregistered,
+                          })
                           handleOpenDetail(m.id)
                         }}
                       >
@@ -1168,15 +1182,168 @@ function Meetings() {
         </div>
       )}
 
+      {/* ─── 일자별 회의 및 녹화본 목록 팝업 모달 ─────────────────────── */}
+      {selectedDayList && !selectedMeeting && (
+        <div className="modal-overlay" onClick={() => setSelectedDayList(null)}>
+          <div className="modal-container day-list-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="day-list-modal-title-box">
+                <span className="day-list-calendar-icon">📅</span>
+                <div>
+                  <h2>{selectedDayList.displayDate} 회의 및 녹화본</h2>
+                  <span className="day-list-modal-subtitle">
+                    등록된 회의 {selectedDayList.meetings.length}건
+                    {selectedDayList.unregistered.length > 0 && ` · 대기 녹화본 ${selectedDayList.unregistered.length}건`}
+                  </span>
+                </div>
+              </div>
+              <button className="close-btn" onClick={() => setSelectedDayList(null)}>×</button>
+            </div>
+
+            <div className="modal-body day-list-modal-body">
+              {/* 1. 등록 대기 중인 미등록 녹화본이 있는 경우 */}
+              {selectedDayList.unregistered.length > 0 && (
+                <div className="day-list-unreg-section">
+                  <div className="day-list-section-title">
+                    <span className="pulse-dot">⚡</span>
+                    <h4>등록 대기 중인 OBS 녹화 파일 ({selectedDayList.unregistered.length}건)</h4>
+                  </div>
+                  <div className="day-list-cards-grid">
+                    {selectedDayList.unregistered.map(unreg => (
+                      <div key={unreg.rel_path} className="day-list-unreg-card">
+                        <div className="unreg-card-left">
+                          <div className="unreg-card-time">
+                            <span className="time-tag">⏰ {unreg.start_time}</span>
+                            <span className="size-tag">💾 {unreg.size_mb} MB</span>
+                            {unreg.duration_sec > 0 && (
+                              <span className="duration-tag">⏳ {formatDuration(unreg.duration_sec)}</span>
+                            )}
+                          </div>
+                          <div className="unreg-card-filename">{unreg.name}</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-unreg-process"
+                          onClick={() => {
+                            setSelectedDayList(null)
+                            handleAutoProcess([unreg.rel_path])
+                          }}
+                        >
+                          ⚡ AI 회의록 등록
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 2. 등록 완료된 회의 목록 */}
+              <div className="day-list-meetings-section">
+                <div className="day-list-section-title">
+                  <span>🎙️</span>
+                  <h4>회의록 목록 ({selectedDayList.meetings.length}건)</h4>
+                </div>
+
+                {selectedDayList.meetings.length === 0 ? (
+                  <div className="day-list-empty-state">
+                    <p>등록된 회의록이 없습니다. 아래 버튼으로 새로 등록해보세요.</p>
+                  </div>
+                ) : (
+                  <div className="day-list-cards-grid">
+                    {selectedDayList.meetings.map(m => {
+                      const actions = m.action_items || []
+                      const doneActions = actions.filter(a => a.done).length
+
+                      return (
+                        <div
+                          key={m.id}
+                          className="day-list-meeting-card"
+                          onClick={() => handleOpenDetail(m.id)}
+                        >
+                          <div className="meeting-card-top-row">
+                            <div className="meeting-time-badge">
+                              ⏰ {m.start_time || '시간 미지정'}
+                              {m.duration_sec > 0 && ` (${formatDuration(m.duration_sec)})`}
+                            </div>
+                            <span className="meeting-status-badge">AI 분석 완료</span>
+                          </div>
+
+                          <h3 className="meeting-card-title">{m.title}</h3>
+
+                          {m.summary && (
+                            <p className="meeting-card-preview">
+                              {m.summary.replace(/[#*`]/g, '').slice(0, 140)}...
+                            </p>
+                          )}
+
+                          <div className="meeting-card-footer">
+                            <div className="meeting-meta-chips">
+                              {actions.length > 0 && (
+                                <span className="action-chip">
+                                  🚀 액션아이템 {doneActions}/{actions.length}
+                                </span>
+                              )}
+                              {m.tags && m.tags.slice(0, 3).map((t, idx) => (
+                                <span key={idx} className="tag-chip">#{t}</span>
+                              ))}
+                            </div>
+                            <button type="button" className="btn-view-detail">
+                              상세 회의록 보기 ➔
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="modal-footer day-list-modal-footer">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setMeetingDate(selectedDayList.dateStr)
+                  setSelectedDayList(null)
+                  setIsProcessModalOpen(true)
+                }}
+              >
+                ➕ 이 날짜에 새 회의 분석/등록
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setSelectedDayList(null)}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ─── 회의 상세 뷰어 모달 ───────────────────────────────────── */}
       {selectedMeeting && (
         <div className="modal-overlay" onClick={() => setSelectedMeeting(null)}>
           <div className="modal-container" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>
-                <span>🎙️</span> {selectedMeeting.title}
-              </h2>
-              <button className="close-btn" onClick={() => setSelectedMeeting(null)}>×</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', minWidth: 0, flex: 1 }}>
+                {selectedDayList && (
+                  <button
+                    type="button"
+                    className="btn-back-to-list"
+                    onClick={() => setSelectedMeeting(null)}
+                    title={`${selectedDayList.displayDate} 회의 목록으로 돌아가기`}
+                  >
+                    ← 목록
+                  </button>
+                )}
+                <h2 style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span>🎙️</span> {selectedMeeting.title}
+                </h2>
+              </div>
+              <button className="close-btn" onClick={() => { setSelectedMeeting(null); setSelectedDayList(null); }}>×</button>
             </div>
 
             <div className="modal-body">

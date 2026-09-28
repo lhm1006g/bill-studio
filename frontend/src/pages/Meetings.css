@@ -1797,3 +1797,289 @@
   animation: pulseDot 1s infinite;
 }
 
+/* ─── 일자별 회의 및 녹화본 목록 팝업 모달 ───────────────────────── */
+.btn-back-to-list {
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-back-to-list:hover {
+  background: #38bdf8;
+  color: #0f172a;
+}
+
+.day-list-modal {
+  max-width: 660px !important;
+  width: 92% !important;
+}
+
+.day-list-modal-title-box {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.day-list-calendar-icon {
+  font-size: 1.8rem;
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.day-list-modal-title-box h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.day-list-modal-subtitle {
+  font-size: 0.82rem;
+  color: #94a3b8;
+  font-weight: 500;
+  margin-top: 0.2rem;
+  display: block;
+}
+
+.day-list-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.3rem;
+  max-height: 65vh;
+  overflow-y: auto;
+  padding: 1.2rem 1.4rem;
+}
+
+.day-list-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.day-list-section-title h4 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin: 0;
+}
+
+.day-list-cards-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+/* 등록된 회의 카드 */
+.day-list-meeting-card {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1.1rem 1.2rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.day-list-meeting-card:hover {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(56, 189, 248, 0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(56, 189, 248, 0.15);
+}
+
+.meeting-card-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.meeting-time-badge {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.meeting-status-badge {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+}
+
+.meeting-card-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.day-list-meeting-card:hover .meeting-card-title {
+  color: #38bdf8;
+}
+
+.meeting-card-preview {
+  font-size: 0.84rem;
+  color: #94a3b8;
+  line-height: 1.5;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.meeting-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.2rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.meeting-meta-chips {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.meeting-meta-chips .action-chip {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #60a5fa;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
+}
+
+.meeting-meta-chips .tag-chip {
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 10px;
+}
+
+.btn-view-detail {
+  background: transparent;
+  border: none;
+  color: #38bdf8;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  transition: transform 0.15s ease;
+}
+
+.day-list-meeting-card:hover .btn-view-detail {
+  transform: translateX(3px);
+  color: #60a5fa;
+}
+
+/* 미등록 녹화본 카드 */
+.day-list-unreg-card {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(30, 41, 59, 0.7) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 12px;
+  padding: 0.9rem 1.1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.unreg-card-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.unreg-card-time {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  flex-wrap: wrap;
+}
+
+.unreg-card-time .time-tag {
+  color: #f59e0b;
+  font-weight: 700;
+}
+
+.unreg-card-time .size-tag,
+.unreg-card-time .duration-tag {
+  color: #94a3b8;
+}
+
+.unreg-card-filename {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #f8fafc;
+  word-break: break-all;
+}
+
+.btn-unreg-process {
+  background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+  border: none;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.4);
+  transition: all 0.2s ease;
+}
+
+.btn-unreg-process:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(234, 88, 12, 0.5);
+}
+
+.day-list-empty-state {
+  text-align: center;
+  padding: 2rem 1rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
