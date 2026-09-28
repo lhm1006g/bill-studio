@@ -78,17 +78,51 @@ export default function News() {
   // 소스 추가 모달 폼
   const [newSource, setNewSource] = useState({ name: '', url: '', category: 'IT/기술', icon: '📰' })
 
+  // 날짜 기반 필터 및 데일리 브리핑
+  const [dates, setDates] = useState([])
+  const [selectedDate, setSelectedDate] = useState(null) // null = 전체, 또는 'YYYY-MM-DD'
+  const [showBriefingModal, setShowBriefingModal] = useState(false)
+  const [briefingData, setBriefingData] = useState({ date: '', content: '', isLoading: false, isStreaming: false, error: '' })
+  const briefingAbortRef = useRef(null)
+
   // ─── 초기 데이터 로딩 ────────────────────────────────────────
   useEffect(() => {
     loadSources()
     loadCounts()
     loadTrends()
     loadWatchlist()
+    loadDates()
   }, [])
 
   useEffect(() => {
     loadArticles()
-  }, [selectedSource, selectedStock, showBookmarked])
+  }, [selectedSource, selectedStock, showBookmarked, selectedDate])
+
+  const loadDates = async () => {
+    try {
+      const res = await fetch(`${API}/dates`)
+      if (res.ok) {
+        const data = await res.json()
+        setDates(data)
+        // 기본값: 오늘 기사가 있으면 오늘, 오늘 기사가 0건이고 어제 기사가 있으면 어제를 기본 추천하거나 오늘 선택
+        // 사용자 편의를 위해 첫 진입 시 '오늘' 날짜를 기본 선택
+        if (data.length > 0 && selectedDate === null) {
+          // 기사가 있는 가장 최근 일자 또는 오늘
+          const todayItem = data.find(d => d.label === '오늘')
+          const firstWithCount = data.find(d => d.total_count > 0)
+          if (todayItem && todayItem.total_count > 0) {
+            setSelectedDate(todayItem.date)
+          } else if (firstWithCount) {
+            setSelectedDate(firstWithCount.date)
+          } else if (todayItem) {
+            setSelectedDate(todayItem.date)
+          }
+        }
+      }
+    } catch (e) {
+      console.error('날짜 목록 로드 실패:', e)
+    }
+  }
 
   const loadSources = async () => {
     try {
@@ -130,6 +164,7 @@ export default function News() {
     setIsLoadingArticles(true)
     try {
       const params = new URLSearchParams({ limit: 100 })
+      if (selectedDate) params.set('date', selectedDate)
       if (selectedSource) params.set('source_id', selectedSource)
       if (selectedStock) params.set('stock', selectedStock)
       if (showBookmarked) params.set('bookmarked', 'true')
@@ -141,7 +176,117 @@ export default function News() {
     } finally {
       setIsLoadingArticles(false)
     }
-  }, [selectedSource, selectedStock, showBookmarked, searchKeyword])
+  }, [selectedSource, selectedStock, showBookmarked, searchKeyword, selectedDate])
+
+  // 특정 날짜 전체 읽음 처리
+  const handleMarkDateRead = async (dateStr) => {
+    if (!dateStr) return
+    try {
+      const res = await fetch(`${API}/dates/${dateStr}/read-all`, { method: 'POST' })
+      if (res.ok) {
+        showToast(`✅ ${dateStr} 기사를 모두 읽음 처리했습니다.`, 'success')
+        await loadArticles()
+        await loadCounts()
+        await loadDates()
+      }
+    } catch (e) {
+      showToast('❌ 읽음 처리 실패: ' + e.message, 'error')
+    }
+  }
+
+  // 데일리 AI 종합 브리핑 열기/생성
+  const handleOpenBriefing = async (dateStr, force = false) => {
+    const targetDate = dateStr || selectedDate
+    if (!targetDate) return
+
+    setShowBriefingModal(true)
+    setBriefingData({ date: targetDate, content: '', isLoading: true, isStreaming: false, error: '' })
+
+    if (briefingAbortRef.current) {
+      briefingAbortRef.current.abort()
+    }
+    briefingAbortRef.current = new AbortController()
+
+    try {
+      const response = await fetch(`${API}/dates/${targetDate}/briefing?force=${force}`, {
+        method: 'POST',
+        signal: briefingAbortRef.current.signal
+      })
+
+      if (!response.ok) {
+        throw new Error(`브리핑 요청 실패 (${response.status})`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let accumulated = ''
+      let buffer = ''
+
+      setBriefingData(prev => ({ ...prev, isLoading: false, isStreaming: true }))
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const dataStr = line.slice(6).trim()
+          if (dataStr === '[DONE]') break
+
+          try {
+            const parsed = JSON.parse(dataStr)
+            if (parsed.error || (parsed.type === 'error' && parsed.message)) {
+              setBriefingData(prev => ({
+                ...prev,
+                isStreaming: false,
+                isLoading: false,
+                error: parsed.error || parsed.message
+              }))
+              return
+            } else if (parsed.type === 'cached' && parsed.text) {
+              setBriefingData(prev => ({
+                ...prev,
+                content: parsed.text,
+                isStreaming: false,
+                isLoading: false
+              }))
+              loadDates()
+              return
+            } else if (parsed.type === 'token' && parsed.text) {
+              accumulated += parsed.text
+              setBriefingData(prev => ({ ...prev, content: accumulated }))
+            } else if (parsed.type === 'done' && parsed.full_text) {
+              accumulated = parsed.full_text
+              setBriefingData(prev => ({ ...prev, content: accumulated }))
+            }
+          } catch {
+            // JSON 파싱 실패 무시
+          }
+        }
+      }
+
+      setBriefingData(prev => ({
+        ...prev,
+        content: accumulated,
+        isStreaming: false,
+        isLoading: false
+      }))
+      loadDates()
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setBriefingData(prev => ({
+          ...prev,
+          isLoading: false,
+          isStreaming: false,
+          error: `⚠️ 오류가 발생했습니다: ${err.message}`
+        }))
+      }
+    }
+  }
 
   // 검색 디바운스
   useEffect(() => {
@@ -627,6 +772,88 @@ export default function News() {
           />
         </div>
 
+        {/* 📅 날짜 기반 타임라인 필터 스트립 */}
+        <div className="news-date-strip">
+          <div className="date-strip-scroll">
+            <button
+              type="button"
+              className={`date-chip ${selectedDate === null ? 'active' : ''}`}
+              onClick={() => setSelectedDate(null)}
+            >
+              <span className="date-chip-label">🌐 전체 기간</span>
+              <span className="date-chip-count">{counts.total}</span>
+            </button>
+
+            {dates.map(d => {
+              const isSelected = selectedDate === d.date
+              return (
+                <button
+                  key={d.date}
+                  type="button"
+                  className={`date-chip ${isSelected ? 'active' : ''} ${d.label === '오늘' ? 'is-today' : ''}`}
+                  onClick={() => setSelectedDate(d.date)}
+                >
+                  <span className="date-chip-label">
+                    {d.label === '오늘' ? '🔥 오늘' : d.label === '어제' ? '📅 어제' : d.label}
+                    <span className="date-chip-sub">({d.date.slice(5)})</span>
+                  </span>
+                  <span className="date-chip-count">{d.total_count}</span>
+                  {d.unread_count > 0 && (
+                    <span className="date-unread-dot" title={`미읽음 ${d.unread_count}건`} />
+                  )}
+                  {d.has_briefing && (
+                    <span className="date-briefing-tag" title="AI 브리핑 완료">✨</span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* ⚡ 선택된 날짜 데일리 액션 & 브리핑 배너 */}
+        {selectedDate && (
+          <div className="news-date-action-banner">
+            <div className="date-action-left">
+              <span className="date-action-icon">📅</span>
+              <span className="date-action-title">
+                <strong>
+                  {dates.find(d => d.date === selectedDate)?.label || selectedDate}
+                  <span className="date-badge-date">({selectedDate.slice(5)})</span>
+                </strong>
+                {' · '}기사 {articles.length}건
+              </span>
+              {dates.find(d => d.date === selectedDate)?.unread_count > 0 && (
+                <span className="date-action-unread">
+                  미읽음 {dates.find(d => d.date === selectedDate)?.unread_count}
+                </span>
+              )}
+            </div>
+
+            <div className="date-action-right">
+              <button
+                type="button"
+                className="date-briefing-btn"
+                onClick={() => handleOpenBriefing(selectedDate)}
+                title="이 날짜의 주요 기사를 AI가 종합 3분 브리핑"
+              >
+                {dates.find(d => d.date === selectedDate)?.has_briefing
+                  ? '📜 AI 데일리 브리핑 열기'
+                  : '✨ AI 데일리 3분 브리핑'}
+              </button>
+              {dates.find(d => d.date === selectedDate)?.unread_count > 0 && (
+                <button
+                  type="button"
+                  className="date-read-all-btn"
+                  onClick={() => handleMarkDateRead(selectedDate)}
+                  title="이 날짜 기사 모두 읽음 처리"
+                >
+                  ✓ 모두 읽음
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="news-articles-list">
           {isLoadingArticles ? (
             <div className="news-loading">기사 불러오는 중...</div>
@@ -954,6 +1181,95 @@ export default function News() {
               </button>
               <button className="news-modal-submit" onClick={handleAddSource}>
                 ＋ 추가하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ 📰 데일리 AI 종합 브리핑 모달 ═══ */}
+      {showBriefingModal && (
+        <div className="news-modal-overlay" onClick={() => setShowBriefingModal(false)}>
+          <div className="news-briefing-modal" onClick={e => e.stopPropagation()}>
+            <div className="news-briefing-header">
+              <div className="briefing-header-left">
+                <span className="briefing-header-icon">📰</span>
+                <div>
+                  <h3 className="briefing-header-title">
+                    {briefingData.date} 데일리 AI 뉴스 종합 브리핑
+                  </h3>
+                  <span className="briefing-header-sub">
+                    Gemini 3.8 Flash 애널리스트 심층 분석
+                  </span>
+                </div>
+              </div>
+              <div className="briefing-header-actions">
+                <button
+                  type="button"
+                  className="briefing-action-btn"
+                  onClick={() => handleOpenBriefing(briefingData.date, true)}
+                  disabled={briefingData.isStreaming || briefingData.isLoading}
+                  title="다시 분석하기"
+                >
+                  🔄 다시 요약
+                </button>
+                <button
+                  type="button"
+                  className="briefing-action-btn"
+                  onClick={() => {
+                    navigator.clipboard.writeText(briefingData.content)
+                    showToast('📋 브리핑이 클립보드에 복사되었습니다.', 'success')
+                  }}
+                  disabled={!briefingData.content}
+                  title="클립보드 복사"
+                >
+                  📋 복사
+                </button>
+                <button
+                  type="button"
+                  className="news-modal-close-btn"
+                  onClick={() => setShowBriefingModal(false)}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div className="news-briefing-body">
+              {briefingData.isLoading ? (
+                <div className="briefing-loading-state">
+                  <div className="briefing-spinner" />
+                  <p>기사들을 심층 분석하여 데일리 브리핑을 작성하고 있습니다...</p>
+                  <span>(핵심 3대 이슈, 테크/AI 트렌드, 관심종목 영향 분석)</span>
+                </div>
+              ) : briefingData.error ? (
+                <div className="briefing-error-state">
+                  <span className="briefing-error-icon">⚠️</span>
+                  <p>{briefingData.error}</p>
+                  <button onClick={() => handleOpenBriefing(briefingData.date, true)}>
+                    다시 시도
+                  </button>
+                </div>
+              ) : (
+                <div className="briefing-content-view">
+                  <AiMarkdown text={briefingData.content} />
+                  {briefingData.isStreaming && (
+                    <span className="briefing-cursor">▋</span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="news-briefing-footer">
+              <span className="briefing-footer-tip">
+                💡 오늘 하루의 흐름을 1분 만에 파악할 수 있도록 핵심만 선별했습니다.
+              </span>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => setShowBriefingModal(false)}
+              >
+                닫기
               </button>
             </div>
           </div>

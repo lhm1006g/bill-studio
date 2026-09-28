@@ -589,26 +589,16 @@ def get_events(
 
                     for item in events_result.get("items", []):
                         gid = item.get("id")
-                        if gid in seen_google_ids:
-                            continue
-
                         start = item.get("start", {})
                         end = item.get("end", {})
                         all_day = "date" in start
                         title = item.get("summary", "(제목 없음)")
                         desc = item.get("description", "")
-                        
-                        is_routine = cal_is_routine or check_is_routine(title, desc, cal_summary)
-                        is_comjjang = cal_is_comjjang or check_is_comjjang(title, desc, cal_summary)
-                        is_holiday = (cal_is_holiday or check_is_holiday(title, desc, cal_summary)) and check_is_holiday(title, desc, cal_summary)
 
                         start_raw = start.get("dateTime") or start.get("date")
                         end_raw = end.get("dateTime") or end.get("date")
 
-                        # 구글 캘린더 종일(all_day) 일정 정규화:
-                        # 구글 캘린더 API 규격상 종일 일정의 end.date는 '종료일 다음 날(exclusive)'로 반환됩니다.
-                        # (예: 10월 3일 하루짜리 개천절 -> start: "2026-10-03", end: "2026-10-04")
-                        # 이를 보정하지 않으면 10월 3일과 4일 이틀에 걸쳐 표시되므로 inclusive 종료일(end - 1일)로 보정합니다.
+                        # 구글 캘린더 종일(all_day) 일정 정규화
                         if all_day and start.get("date") and end.get("date"):
                             try:
                                 s_date = datetime.strptime(start.get("date"), "%Y-%m-%d").date()
@@ -620,6 +610,30 @@ def get_events(
                                     end_raw = start.get("date")
                             except Exception:
                                 end_raw = start.get("date")
+
+                        # 로컬 DB에 이미 등록된 구글 이벤트라면, 구글 캘린더의 최신 정보로 로컬 DB 및 목록 갱신
+                        if gid in seen_google_ids:
+                            for me in merged_events:
+                                if me.get("google_event_id") == gid:
+                                    me["title"] = title
+                                    me["description"] = desc
+                                    me["start"] = start_raw
+                                    me["end"] = end_raw
+                                    me["all_day"] = all_day
+                                    break
+                            # DB 레코드 업데이트
+                            local_rec = next((r for r in local_records if r.google_event_id == gid), None)
+                            if local_rec:
+                                local_rec.title = title
+                                local_rec.description = desc
+                                local_rec.start_time = start_raw
+                                local_rec.end_time = end_raw
+                                local_rec.all_day = all_day
+                            continue
+
+                        is_routine = cal_is_routine or check_is_routine(title, desc, cal_summary)
+                        is_comjjang = cal_is_comjjang or check_is_comjjang(title, desc, cal_summary)
+                        is_holiday = (cal_is_holiday or check_is_holiday(title, desc, cal_summary)) and check_is_holiday(title, desc, cal_summary)
 
                         if is_holiday and start_raw:
                             try:
@@ -657,6 +671,11 @@ def get_events(
 
         except Exception as e:
             print(f"[Schedule] 구글 캘린더 목록 동기화 에러: {e}")
+        finally:
+            try:
+                db.commit()
+            except Exception:
+                pass
 
     # 3. 대한민국 법정 공휴일 자동 보강 (구글 캘린더에 누락되었거나 연동되지 않은 휴일 자동 표시)
     auto_holidays = get_korean_holidays_for_range(time_min, time_max)

@@ -2,13 +2,14 @@
 Phase 6 - 뉴스 리서치 백엔드
 RSS 수집 + 본문 추출 + Ollama AI 요약 스트리밍
 """
+import asyncio
 import json
 import time
 import hashlib
 import sqlite3
 from pathlib import Path
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime, timezone, timedelta
+from typing import Optional, List
 
 import feedparser
 import httpx
@@ -19,8 +20,9 @@ from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/news", tags=["news"])
 
-# DB 경로
+# DB 경로 및 agy CLI 경로
 DB_PATH = Path(__file__).resolve().parent.parent / "studio.db"
+AGY_BIN = "/Users/bill/.local/bin/agy"
 
 # ─── 기본 뉴스 소스 ────────────────────────────────────────────────────
 DEFAULT_SOURCES = [
@@ -176,6 +178,17 @@ def init_db():
             color TEXT DEFAULT '#8b5cf6',
             is_active INTEGER DEFAULT 1,
             created_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    # 📅 날짜별 데일리 AI 종합 브리핑 테이블
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS daily_news_briefings (
+            date TEXT PRIMARY KEY,
+            content TEXT NOT NULL,
+            article_count INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
         )
     """)
 
@@ -450,13 +463,102 @@ def fetch_all_sources():
     return {"total_new": total_new, "results": results}
 
 
-# ─── 기사 목록 API ────────────────────────────────────────────────────
+# ─── 날짜 헬퍼 함수 ───────────────────────────────────────────────────
+def get_date_label(date_str: str) -> str:
+    """YYYY-MM-DD 날짜를 '오늘', '어제', '그저께', 'M월 D일' 등으로 변환"""
+    now_kst = datetime.now(timezone(timedelta(hours=9))).date()
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        diff = (now_kst - target_date).days
+        if diff == 0:
+            return "오늘"
+        elif diff == 1:
+            return "어제"
+        elif diff == 2:
+            return "그저께"
+        else:
+            return f"{target_date.month}월 {target_date.day}일"
+    except Exception:
+        return date_str
+
+
+# ─── 날짜 목록 API ────────────────────────────────────────────────────
+@router.get("/dates")
+def get_news_dates():
+    """뉴스 기사가 존재하는 최근 날짜 목록 및 건수, 브리핑 여부 반환"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+
+    rows = conn.execute("""
+        SELECT 
+            COALESCE(NULLIF(substr(published_at, 1, 10), ''), substr(fetched_at, 1, 10)) as date_key,
+            COUNT(*) as total_count,
+            SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread_count
+        FROM news_articles
+        WHERE COALESCE(NULLIF(substr(published_at, 1, 10), ''), substr(fetched_at, 1, 10)) IS NOT NULL
+        GROUP BY date_key
+        ORDER BY date_key DESC
+        LIMIT 14
+    """).fetchall()
+
+    # 브리핑 존재 여부 맵
+    briefing_rows = conn.execute("SELECT date FROM daily_news_briefings").fetchall()
+    briefing_dates = {r[0] for r in briefing_rows}
+    conn.close()
+
+    now_kst_str = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")
+    result = []
+    has_today = False
+
+    for r in rows:
+        d_key = r["date_key"]
+        if not d_key or len(d_key) < 10:
+            continue
+        if d_key == now_kst_str:
+            has_today = True
+        result.append({
+            "date": d_key,
+            "label": get_date_label(d_key),
+            "total_count": r["total_count"],
+            "unread_count": r["unread_count"] or 0,
+            "has_briefing": d_key in briefing_dates,
+        })
+
+    # 오늘 날짜가 아직 DB에 없더라도 '오늘' 탭은 맨 앞에 항상 유지
+    if not has_today:
+        result.insert(0, {
+            "date": now_kst_str,
+            "label": "오늘",
+            "total_count": 0,
+            "unread_count": 0,
+            "has_briefing": now_kst_str in briefing_dates,
+        })
+
+    return result
+
+
+@router.post("/dates/{date}/read-all")
+def mark_date_all_read(date: str):
+    """해당 날짜의 모든 기사를 일괄 읽음 처리"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        UPDATE news_articles 
+        SET is_read = 1 
+        WHERE COALESCE(NULLIF(substr(published_at, 1, 10), ''), substr(fetched_at, 1, 10)) = ?
+    """, (date,))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "date": date}
+
+
+# ─── 기사 목록 API (날짜 필터 지원) ──────────────────────────────────
 @router.get("/articles")
 def get_articles(
     source_id: Optional[str] = None,
     category: Optional[str] = None,
     keyword: Optional[str] = None,
     stock: Optional[str] = None,
+    date: Optional[str] = None,
     bookmarked: Optional[bool] = None,
     limit: int = 60,
     offset: int = 0,
@@ -471,6 +573,11 @@ def get_articles(
         WHERE 1=1
     """
     params = []
+
+    # 📅 날짜 필터링 (YYYY-MM-DD)
+    if date:
+        query += " AND COALESCE(NULLIF(substr(a.published_at, 1, 10), ''), substr(a.fetched_at, 1, 10)) = ?"
+        params.append(date)
 
     if source_id:
         query += " AND a.source_id = ?"
@@ -502,6 +609,178 @@ def get_articles(
     rows = conn.execute(query, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ─── 날짜별 데일리 AI 종합 브리핑 API ─────────────────────────────────
+@router.get("/dates/{date}/briefing")
+def get_daily_briefing(date: str):
+    """해당 날짜의 기존 AI 브리핑 조회"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM daily_news_briefings WHERE date = ?", (date,)).fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return {"date": date, "content": None}
+
+
+@router.post("/dates/{date}/briefing")
+async def generate_daily_briefing(date: str, force: bool = False):
+    """특정 날짜의 기사들을 종합하여 실시간 SSE 스트리밍으로 데일리 브리핑 생성"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+
+    # 캐시 확인 (force가 아니면 기존 브리핑 즉시 반환)
+    if not force:
+        cached = conn.execute("SELECT * FROM daily_news_briefings WHERE date = ?", (date,)).fetchone()
+        if cached and cached["content"]:
+            conn.close()
+            async def cached_stream():
+                yield f"data: {json.dumps({'type': 'cached', 'text': cached['content'], 'date': date})}\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(cached_stream(), media_type="text/event-stream")
+
+    # 해당 일자의 주요 기사 추출 (최대 25개: 관심종목 언급 기사 우선)
+    articles = conn.execute("""
+        SELECT a.title, a.summary, a.mentioned_stocks, s.name as source_name, s.category
+        FROM news_articles a
+        JOIN news_sources s ON a.source_id = s.id
+        WHERE COALESCE(NULLIF(substr(a.published_at, 1, 10), ''), substr(a.fetched_at, 1, 10)) = ?
+        ORDER BY 
+            CASE WHEN a.mentioned_stocks IS NOT NULL AND a.mentioned_stocks != '' THEN 0 ELSE 1 END,
+            a.published_at DESC
+        LIMIT 25
+    """, (date,)).fetchall()
+    conn.close()
+
+    if not articles:
+        async def empty_stream():
+            msg = f"{date} 날짜에 수집된 기사가 없어 브리핑을 생성할 수 없습니다."
+            yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(empty_stream(), media_type="text/event-stream")
+
+    # 기사 목록 텍스트 생성
+    article_lines = []
+    for i, a in enumerate(articles, 1):
+        stock_tag = f" [관련: {a['mentioned_stocks']}]" if a["mentioned_stocks"] else ""
+        summary_clean = (a["summary"] or "")[:150].replace("\n", " ")
+        article_lines.append(f"{i}. [{a['category']}/{a['source_name']}] {a['title']}{stock_tag}\n   - 요약: {summary_clean}")
+
+    article_bullet_text = "\n".join(article_lines)
+
+    date_label = get_date_label(date)
+    prompt = f"""당신은 세계 최고 수준의 IT/테크 및 증권 금융 수석 리서치 애널리스트입니다.
+{date} ({date_label}) 하루 동안 수집된 주요 뉴스 기사 {len(articles)}건을 분석하여, 바쁜 사용자가 1분 만에 오늘의 모든 핵심 흐름을 완벽히 꿰뚫을 수 있도록 고품질 '데일리 종합 뉴스 브리핑'을 작성해주세요.
+
+[수집된 {date} 주요 기사 목록]
+{article_bullet_text}
+
+다음 형식으로 명확하고 가독성 높게(마크다운, 볼드, 이모지) 작성해주세요:
+
+# 📰 {date} ({date_label}) 데일리 뉴스 종합 브리핑
+
+## 🔥 오늘의 3대 빅 이슈 & 파급 효과
+1. **[이슈 1 핵심 제목]**: 구체적 사건 내용 및 이것이 업계나 시장에 미치는 영향 2줄 설명
+2. **[이슈 2 핵심 제목]**: 구체적 사건 내용 및 이것이 업계나 시장에 미치는 영향 2줄 설명
+3. **[이슈 3 핵심 제목]**: 구체적 사건 내용 및 이것이 업계나 시장에 미치는 영향 2줄 설명
+
+## ⚡ IT · AI 테크 시장 주요 동향
+- **[테크 트렌드]**: 주요 기술 발표, AI 모델, 반도체 및 빅테크 흐름 요약
+
+## 📈 관심 종목(반도체/빅테크/경제) 동향
+- **[기업명/종목]**: 해당 기업 관련 주요 이슈 요약 (언급된 경우만 작성)
+
+## 💡 오늘의 1줄 인사이트
+> (오늘 하루의 뉴스를 관통하는 핵심 메시지 1줄)
+"""
+
+    async def generate_briefing():
+        accumulated = ""
+        # 1. agy CLI (Gemini 3.8 Flash) 시도
+        try:
+            cmd = [
+                AGY_BIN,
+                "-p", prompt,
+                "--model", "gemini-3.8-flash-medium",
+                "--output-format", "stream-json",
+                "--dangerously-skip-permissions",
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            while True:
+                line_bytes = await proc.stdout.readline()
+                if not line_bytes:
+                    break
+                line_str = line_bytes.decode("utf-8", errors="replace").strip()
+                if not line_str:
+                    continue
+                try:
+                    data = json.loads(line_str)
+                    if data.get("event") == "step_update":
+                        delta = data.get("step_update", {}).get("text_delta", "")
+                        if delta:
+                            accumulated += delta
+                            yield f"data: {json.dumps({'type': 'token', 'text': delta})}\n\n"
+                except Exception:
+                    continue
+
+            await proc.wait()
+        except Exception as e:
+            # agy 실패 시 Ollama fallback
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    async with client.stream(
+                        "POST",
+                        "http://localhost:11434/api/generate",
+                        json={
+                            "model": "gemma3:12b",
+                            "prompt": prompt,
+                            "stream": True,
+                        },
+                    ) as resp:
+                        async for line in resp.aiter_lines():
+                            if not line:
+                                continue
+                            try:
+                                d = json.loads(line)
+                                token = d.get("response", "")
+                                accumulated += token
+                                yield f"data: {json.dumps({'type': 'token', 'text': token})}\n\n"
+                                if d.get("done"):
+                                    break
+                            except Exception:
+                                continue
+            except Exception as e2:
+                yield f"data: {json.dumps({'type': 'error', 'message': f'AI 브리핑 생성 실패: {str(e2)}'})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+
+        # DB에 캐시 저장 (UPSERT)
+        if accumulated:
+            try:
+                conn2 = sqlite3.connect(DB_PATH)
+                conn2.execute("""
+                    INSERT INTO daily_news_briefings (date, content, article_count, updated_at)
+                    VALUES (?, ?, ?, datetime('now'))
+                    ON CONFLICT(date) DO UPDATE SET
+                        content = excluded.content,
+                        article_count = excluded.article_count,
+                        updated_at = datetime('now')
+                """, (date, accumulated, len(articles)))
+                conn2.commit()
+                conn2.close()
+            except Exception as err:
+                print(f"[ERROR] 브리핑 DB 저장 실패: {err}")
+
+        yield f"data: {json.dumps({'type': 'done', 'full_text': accumulated, 'date': date})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate_briefing(), media_type="text/event-stream")
 
 
 @router.get("/articles/count")
