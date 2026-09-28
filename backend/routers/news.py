@@ -14,8 +14,9 @@ from typing import Optional, List
 import feedparser
 import httpx
 from bs4 import BeautifulSoup
+import edge_tts
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/news", tags=["news"])
@@ -23,6 +24,8 @@ router = APIRouter(prefix="/api/news", tags=["news"])
 # DB 경로 및 agy CLI 경로
 DB_PATH = Path(__file__).resolve().parent.parent / "studio.db"
 AGY_BIN = "/Users/bill/.local/bin/agy"
+PODCAST_DIR = Path(__file__).resolve().parent.parent.parent / "downloads" / "news_podcasts"
+PODCAST_DIR.mkdir(parents=True, exist_ok=True)
 
 # ─── 기본 뉴스 소스 ────────────────────────────────────────────────────
 DEFAULT_SOURCES = [
@@ -189,6 +192,22 @@ def init_db():
             article_count INTEGER DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    # 🎙️ 날짜별 AI 오디오 팟캐스트 테이블
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS daily_news_podcasts (
+            id TEXT PRIMARY KEY,
+            date TEXT NOT NULL,
+            mode TEXT NOT NULL DEFAULT 'deep',
+            voice TEXT NOT NULL DEFAULT 'ko-KR-InJoonNeural',
+            title TEXT NOT NULL,
+            script TEXT NOT NULL,
+            audio_path TEXT NOT NULL,
+            duration REAL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(date, mode, voice)
         )
     """)
 
@@ -781,6 +800,253 @@ async def generate_daily_briefing(date: str, force: bool = False):
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(generate_briefing(), media_type="text/event-stream")
+
+
+# ─── 🎙️ AI 오디오 데일리 팟캐스트 API ─────────────────────────────────
+
+def clean_script_for_tts(text: str) -> str:
+    """마크다운 기호 및 특수문자를 TTS가 자연스럽게 읽을 수 있는 방송 구어체 텍스트로 정제"""
+    import re
+    # 제목 헤더(# 등) 제거 및 쉼표 처리
+    t = re.sub(r'#+\s*', '', text)
+    # 볼드(**) 제거
+    t = re.sub(r'\*\*(.*?)\*\*', r'\1', t)
+    # 인라인 코드(`) 제거
+    t = re.sub(r'`(.*?)`', r'\1', t)
+    # 대괄호 [헤드라인] 등 -> 헤드라인
+    t = re.sub(r'\[(.*?)\]', r'\1, ', t)
+    # 불렛 및 번호 목록 정제
+    t = re.sub(r'^\s*[-*•]\s*', '', t, flags=re.MULTILINE)
+    t = re.sub(r'^\s*\d+\.\s*', '', t, flags=re.MULTILINE)
+    # 이모지 제거 (선택적)
+    t = re.sub(r'[📌🔥⚡📈💡📰🎙️🎧🏢💾📱🧠🇹🇼🇨🇳🚀☢️🚗]', '', t)
+    # 중복 줄바꿈 정돈
+    t = re.sub(r'\n{3,}', '\n\n', t)
+    return t.strip()
+
+
+def get_audio_duration_seconds(file_path: Path) -> float:
+    """ffprobe로 오디오 길이(초) 추출"""
+    import subprocess
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(file_path)
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        return float(res.stdout.strip())
+    except Exception:
+        return 0.0
+
+
+@router.get("/dates/{date}/podcast")
+def get_daily_podcast(
+    date: str,
+    mode: str = "deep",
+    voice: str = "ko-KR-InJoonNeural"
+):
+    """해당 날짜 및 모드의 팟캐스트 존재 여부 및 메타데이터 반환"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("""
+        SELECT * FROM daily_news_podcasts 
+        WHERE date = ? AND mode = ? AND voice = ?
+    """, (date, mode, voice)).fetchone()
+    conn.close()
+
+    if row:
+        d = dict(row)
+        d["exists"] = True
+        d["audio_url"] = f"/api/news/podcasts/{d['id']}/audio"
+        return d
+    return {"date": date, "mode": mode, "voice": voice, "exists": False}
+
+
+class PodcastCreateRequest(BaseModel):
+    mode: str = "deep"  # 'deep' (7~10분) 또는 'quick' (2~3분)
+    voice: str = "ko-KR-InJoonNeural"  # 'ko-KR-InJoonNeural' (인준) 또는 'ko-KR-SunHiNeural' (선희)
+    force: bool = False
+
+
+@router.post("/dates/{date}/podcast")
+async def create_daily_podcast(date: str, body: PodcastCreateRequest):
+    """해당 날짜 기사들을 바탕으로 방송 대본을 생성하고 Edge-TTS로 초고음질 오디오 팟캐스트 MP3 생성"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+
+    # 캐시 확인
+    if not body.force:
+        cached = conn.execute("""
+            SELECT * FROM daily_news_podcasts 
+            WHERE date = ? AND mode = ? AND voice = ?
+        """, (date, body.mode, body.voice)).fetchone()
+        if cached:
+            audio_p = Path(cached["audio_path"])
+            if audio_p.exists() and audio_p.stat().st_size > 1000:
+                conn.close()
+                d = dict(cached)
+                d["audio_url"] = f"/api/news/podcasts/{d['id']}/audio"
+                return d
+
+    # 해당 일자의 주요 기사 25건 추출
+    articles = conn.execute("""
+        SELECT a.title, a.summary, a.mentioned_stocks, s.name as source_name, s.category
+        FROM news_articles a
+        JOIN news_sources s ON a.source_id = s.id
+        WHERE COALESCE(NULLIF(substr(a.published_at, 1, 10), ''), substr(a.fetched_at, 1, 10)) = ?
+        ORDER BY 
+            CASE WHEN a.mentioned_stocks IS NOT NULL AND a.mentioned_stocks != '' THEN 0 ELSE 1 END,
+            a.published_at DESC
+        LIMIT 25
+    """, (date,)).fetchall()
+    conn.close()
+
+    if not articles:
+        raise HTTPException(status_code=400, detail=f"{date} 날짜에 수집된 뉴스가 없습니다.")
+
+    article_lines = []
+    for i, a in enumerate(articles, 1):
+        stock_tag = f" [관련: {a['mentioned_stocks']}]" if a["mentioned_stocks"] else ""
+        summary_clean = (a["summary"] or "")[:150].replace("\n", " ")
+        article_lines.append(f"{i}. [{a['category']}/{a['source_name']}] {a['title']}{stock_tag}\n   - 내용 요약: {summary_clean}")
+
+    article_bullet_text = "\n".join(article_lines)
+    date_label = get_date_label(date)
+
+    # 모드별 대본 생성 프롬프트
+    if body.mode == "deep":
+        prompt = f"""당신은 대한민국 최고의 경제·IT 전문 라디오 뉴스 앵커입니다.
+{date} ({date_label}) 하루 동안 수집된 주요 뉴스 기사 {len(articles)}건을 바탕으로,
+바쁜 직장인이나 개발자가 일하면서 이어폰으로 편안하게 들을 수 있는 **'7~10분 분량(약 2,000~2,300자)의 프리미엄 데일리 라디오 팟캐스트 방송 대본'**을 작성해주세요.
+
+[분석 대상 기사 본문 요약]
+{article_bullet_text}
+
+[작성 지침 - 절대 준수]
+1. 단순 헤드라인 제목 읊기가 아닙니다! 청취자가 귀로 들었을 때 머릿속에 구체적인 맥락과 수치가 생생히 그려지도록 친절하고 조리 있는 방송 구어체(~습니다, ~입니다, ~전망입니다)로 작성하세요.
+2. 사건의 발단, 구체적인 팩트와 수치, 그리고 이것이 우리 경제와 주식/IT 업계에 미치는 파급 효과를 깊이 있게 풀어주세요.
+3. 방송 구조:
+   - **[오프닝]**: 따뜻하고 스마트한 인사와 오늘 하루를 관통하는 핵심 테마 소개 (약 30초)
+   - **[1부: 오늘의 톱 헤드라인 심층 해설]**: 가장 중요한 2~3개 사건의 전말과 시장 영향 심층 분석 (약 3분)
+   - **[2부: 글로벌 IT·AI 테크 동향]**: 최신 AI 모델, 글로벌 반도체 및 장비, 빅테크 혁신 흐름 (약 2분)
+   - **[3부: 관심 기업 집중 포커스]**: 삼성전자, SK하이닉스, NVIDIA, 테슬라, 두산에너빌리티 등 개별 기업들의 호재/악재와 주가 영향 (약 2분 30초)
+   - **[클로징]**: 오늘 하루를 요약하는 1줄 통찰과 기분 좋은 마무리 인사 (약 30초)
+
+오디오로 바로 읽을 것이므로, 너무 복잡한 특수기호나 표는 피하고 듣기 편안한 문장으로 작성해주세요."""
+    else:
+        prompt = f"""당신은 최고의 경제·IT 라디오 뉴스 앵커입니다.
+{date} ({date_label}) 주요 기사 {len(articles)}건을 바탕으로, 출근길이나 짧은 휴식 시간에 3분 만에 모든 핵심을 꿰뚫는 **'3분 분량(약 700~900자)의 숏폼 퀵 브리핑 방송 대본'**을 작성해주세요.
+
+[분석 대상 기사]
+{article_bullet_text}
+
+[작성 지침]
+- 오프닝 ➔ 3대 빅 이슈 구체적 팩트 및 영향 해설 ➔ 관심종목 요약 ➔ 클로징 1줄 인사이트
+- 귀에 쏙쏙 박히는 깔끔한 방송 구어체(~습니다)로 작성해주세요."""
+
+    # 1. agy CLI로 방송 대본 생성
+    script = ""
+    try:
+        cmd = [
+            AGY_BIN,
+            "-p", prompt,
+            "--model", "gemini-3.8-flash-medium",
+            "--dangerously-skip-permissions",
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        script = stdout.decode("utf-8", errors="replace").strip()
+    except Exception as e:
+        print(f"[WARN] agy 대본 생성 실패: {e}, Ollama fallback")
+
+    # fallback: Ollama
+    if not script or len(script) < 300:
+        try:
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                res = await client.post(
+                    "http://localhost:11434/api/generate",
+                    json={"model": "gemma3:12b", "prompt": prompt, "stream": False}
+                )
+                script = res.json().get("response", "")
+        except Exception as e2:
+            raise HTTPException(status_code=500, detail=f"대본 생성 실패: {str(e2)}")
+
+    if not script:
+        raise HTTPException(status_code=500, detail="방송 대본을 생성하지 못했습니다.")
+
+    # 2. TTS 음성 합성 (Edge-TTS)
+    tts_text = clean_script_for_tts(script)
+    voice_slug = "injoon" if "InJoon" in body.voice else "sunhi"
+    podcast_id = hashlib.md5(f"{date}_{body.mode}_{body.voice}".encode()).hexdigest()[:14]
+    file_name = f"podcast_{date}_{body.mode}_{voice_slug}_{podcast_id}.mp3"
+    audio_path = PODCAST_DIR / file_name
+
+    try:
+        # 자연스러운 뉴스 전달 속도 (+4%)
+        communicate = edge_tts.Communicate(tts_text, body.voice, rate="+4%")
+        await communicate.save(str(audio_path))
+    except Exception as tts_err:
+        raise HTTPException(status_code=500, detail=f"오디오 음성 합성 실패: {str(tts_err)}")
+
+    # 길이 측정
+    duration = get_audio_duration_seconds(audio_path)
+
+    # 3. DB 저장 (UPSERT)
+    title = f"{date} ({date_label}) {'심층 라디오 팟캐스트' if body.mode == 'deep' else '3분 퀵 브리핑'}"
+    conn2 = sqlite3.connect(DB_PATH)
+    conn2.execute("""
+        INSERT INTO daily_news_podcasts (id, date, mode, voice, title, script, audio_path, duration, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(date, mode, voice) DO UPDATE SET
+            id = excluded.id,
+            title = excluded.title,
+            script = excluded.script,
+            audio_path = excluded.audio_path,
+            duration = excluded.duration,
+            created_at = datetime('now')
+    """, (podcast_id, date, body.mode, body.voice, title, script, str(audio_path), duration))
+    conn2.commit()
+    conn2.close()
+
+    return {
+        "id": podcast_id,
+        "date": date,
+        "mode": body.mode,
+        "voice": body.voice,
+        "title": title,
+        "script": script,
+        "duration": duration,
+        "audio_url": f"/api/news/podcasts/{podcast_id}/audio",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+
+
+@router.get("/podcasts/{podcast_id}/audio")
+def get_podcast_audio(podcast_id: str):
+    """팟캐스트 MP3 오디오 스트리밍 서빙"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT audio_path FROM daily_news_podcasts WHERE id = ?", (podcast_id,)).fetchone()
+    conn.close()
+
+    if not row or not row["audio_path"]:
+        raise HTTPException(status_code=404, detail="오디오 파일을 찾을 수 없습니다.")
+
+    p = Path(row["audio_path"])
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="오디오 파일이 디스크에 존재하지 않습니다.")
+
+    return FileResponse(
+        p,
+        media_type="audio/mpeg",
+        headers={"Accept-Ranges": "bytes"}
+    )
 
 
 @router.get("/articles/count")

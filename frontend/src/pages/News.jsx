@@ -85,6 +85,19 @@ export default function News() {
   const [briefingData, setBriefingData] = useState({ date: '', content: '', isLoading: false, isStreaming: false, error: '' })
   const briefingAbortRef = useRef(null)
 
+  // 🎙️ AI 오디오 데일리 팟캐스트 상태
+  const [showPodcastModal, setShowPodcastModal] = useState(false)
+  const [podcastMode, setPodcastMode] = useState('deep') // 'deep' (7~10분) | 'quick' (3분)
+  const [podcastVoice, setPodcastVoice] = useState('ko-KR-InJoonNeural') // 'ko-KR-InJoonNeural' | 'ko-KR-SunHiNeural'
+  const [podcastData, setPodcastData] = useState(null)
+  const [isPodcastLoading, setIsPodcastLoading] = useState(false)
+  const [podcastError, setPodcastError] = useState('')
+  const [podcastPlaybackRate, setPodcastPlaybackRate] = useState(1.0)
+  const [isPlayingPodcast, setIsPlayingPodcast] = useState(false)
+  const [podcastCurrentTime, setPodcastCurrentTime] = useState(0)
+  const [podcastDuration, setPodcastDuration] = useState(0)
+  const audioRef = useRef(null)
+
   // ─── 초기 데이터 로딩 ────────────────────────────────────────
   useEffect(() => {
     loadSources()
@@ -285,6 +298,126 @@ export default function News() {
           error: `⚠️ 오류가 발생했습니다: ${err.message}`
         }))
       }
+    }
+  }
+
+  // ─── 🎙️ 팟캐스트 관련 핸들러 ──────────────────────────────
+  const formatTime = (seconds) => {
+    if (!seconds || isNaN(seconds)) return '00:00'
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.floor(seconds % 60)
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+  }
+
+  const handleOpenPodcast = (dateStr) => {
+    const targetDate = dateStr || selectedDate
+    if (!targetDate) return
+    setShowPodcastModal(true)
+    setPodcastError('')
+    fetchPodcastInfo(targetDate, podcastMode, podcastVoice)
+  }
+
+  const fetchPodcastInfo = async (dateStr, mode, voice) => {
+    setIsPodcastLoading(true)
+    setPodcastError('')
+    try {
+      const res = await fetch(`${API}/dates/${dateStr}/podcast?mode=${mode}&voice=${voice}`)
+      if (res.ok) {
+        const data = await res.json()
+        setPodcastData(data)
+      } else {
+        setPodcastData(null)
+      }
+    } catch (e) {
+      console.error('팟캐스트 조회 실패:', e)
+      setPodcastError('팟캐스트 상태를 불러오지 못했습니다.')
+    } finally {
+      setIsPodcastLoading(false)
+    }
+  }
+
+  const handleModeChange = (newMode) => {
+    setPodcastMode(newMode)
+    const targetDate = selectedDate || (dates.length > 0 ? dates[0].date : '')
+    if (targetDate) {
+      fetchPodcastInfo(targetDate, newMode, podcastVoice)
+    }
+  }
+
+  const handleVoiceChange = (newVoice) => {
+    setPodcastVoice(newVoice)
+    const targetDate = selectedDate || (dates.length > 0 ? dates[0].date : '')
+    if (targetDate) {
+      fetchPodcastInfo(targetDate, podcastMode, newVoice)
+    }
+  }
+
+  const handleGeneratePodcast = async (force = false) => {
+    const targetDate = selectedDate || (dates.length > 0 ? dates[0].date : '')
+    if (!targetDate) return
+
+    setIsPodcastLoading(true)
+    setPodcastError('')
+    try {
+      const res = await fetch(`${API}/dates/${targetDate}/podcast`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: podcastMode,
+          voice: podcastVoice,
+          force: force,
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.detail || '팟캐스트 생성에 실패했습니다.')
+      }
+
+      const data = await res.json()
+      setPodcastData({ ...data, exists: true })
+      showToast('🎉 AI 라디오 팟캐스트 녹음이 완료되었습니다!', 'success')
+    } catch (e) {
+      setPodcastError(e.message)
+      showToast('❌ ' + e.message, 'error')
+    } finally {
+      setIsPodcastLoading(false)
+    }
+  }
+
+  const togglePlayPodcast = () => {
+    if (!audioRef.current) return
+    if (isPlayingPodcast) {
+      audioRef.current.pause()
+      setIsPlayingPodcast(false)
+    } else {
+      audioRef.current.play().then(() => {
+        setIsPlayingPodcast(true)
+      }).catch(err => {
+        console.error('재생 실패:', err)
+      })
+    }
+  }
+
+  const seekPodcast = (diffSeconds) => {
+    if (!audioRef.current) return
+    const newTime = Math.max(0, Math.min(audioRef.current.duration || 0, audioRef.current.currentTime + diffSeconds))
+    audioRef.current.currentTime = newTime
+    setPodcastCurrentTime(newTime)
+  }
+
+  const handleSeekChange = (e) => {
+    const newTime = parseFloat(e.target.value)
+    if (audioRef.current) {
+      audioRef.current.currentTime = newTime
+    }
+    setPodcastCurrentTime(newTime)
+  }
+
+  const handleRateChange = (rate) => {
+    setPodcastPlaybackRate(rate)
+    if (audioRef.current) {
+      audioRef.current.playbackRate = rate
     }
   }
 
@@ -832,13 +965,21 @@ export default function News() {
             <div className="date-action-right">
               <button
                 type="button"
+                className="date-podcast-btn"
+                onClick={() => handleOpenPodcast(selectedDate)}
+                title="일하면서 귀로 듣는 AI 라디오 팟캐스트 (7~10분 심층 / 3분 요약)"
+              >
+                🎙️ AI 오디오 팟캐스트
+              </button>
+              <button
+                type="button"
                 className="date-briefing-btn"
                 onClick={() => handleOpenBriefing(selectedDate)}
                 title="이 날짜의 주요 기사를 AI가 종합 3분 브리핑"
               >
                 {dates.find(d => d.date === selectedDate)?.has_briefing
-                  ? '📜 AI 데일리 브리핑 열기'
-                  : '✨ AI 데일리 3분 브리핑'}
+                  ? '📜 AI 데일리 브리핑'
+                  : '✨ AI 3분 브리핑'}
               </button>
               {dates.find(d => d.date === selectedDate)?.unread_count > 0 && (
                 <button
@@ -1268,6 +1409,313 @@ export default function News() {
                 type="button"
                 className="secondary-btn"
                 onClick={() => setShowBriefingModal(false)}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ 🎙️ 데일리 AI 오디오 팟캐스트 모달 ═══ */}
+      {showPodcastModal && (
+        <div className="news-modal-overlay" onClick={() => {
+          if (isPlayingPodcast && audioRef.current) audioRef.current.pause()
+          setIsPlayingPodcast(false)
+          setShowPodcastModal(false)
+        }}>
+          <div className="news-podcast-modal" onClick={e => e.stopPropagation()}>
+            <div className="news-podcast-header">
+              <div className="podcast-header-left">
+                <span className="podcast-header-icon">🎙️</span>
+                <div>
+                  <h3 className="podcast-header-title">
+                    {selectedDate || (dates.length > 0 ? dates[0].date : '')} AI 오디오 라디오 팟캐스트
+                  </h3>
+                  <span className="podcast-header-sub">
+                    일하면서 이어폰으로 편안하게 듣는 데일리 경제·IT 심층 해설 방송
+                  </span>
+                </div>
+              </div>
+              <div className="podcast-header-actions">
+                {podcastData?.exists && (
+                  <button
+                    type="button"
+                    className="podcast-recreate-btn"
+                    onClick={() => handleGeneratePodcast(true)}
+                    disabled={isPodcastLoading}
+                    title="대본을 다시 쓰고 새로 녹음하기"
+                  >
+                    🔄 다시 녹음
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="news-modal-close-btn"
+                  onClick={() => {
+                    if (isPlayingPodcast && audioRef.current) audioRef.current.pause()
+                    setIsPlayingPodcast(false)
+                    setShowPodcastModal(false)
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* 상단 옵션 바: 모드 선택 & 성우 선택 */}
+            <div className="podcast-options-bar">
+              <div className="podcast-opt-group">
+                <span className="podcast-opt-label">방송 포맷:</span>
+                <div className="podcast-pill-toggle">
+                  <button
+                    type="button"
+                    className={`pill-btn ${podcastMode === 'deep' ? 'active' : ''}`}
+                    onClick={() => handleModeChange('deep')}
+                    disabled={isPodcastLoading}
+                  >
+                    🎧 7~10분 심층 데일리 방송 (추천)
+                  </button>
+                  <button
+                    type="button"
+                    className={`pill-btn ${podcastMode === 'quick' ? 'active' : ''}`}
+                    onClick={() => handleModeChange('quick')}
+                    disabled={isPodcastLoading}
+                  >
+                    ⚡ 3분 퀵 브리핑
+                  </button>
+                </div>
+              </div>
+
+              <div className="podcast-opt-group">
+                <span className="podcast-opt-label">AI 성우:</span>
+                <div className="podcast-pill-toggle">
+                  <button
+                    type="button"
+                    className={`pill-btn ${podcastVoice === 'ko-KR-InJoonNeural' ? 'active' : ''}`}
+                    onClick={() => handleVoiceChange('ko-KR-InJoonNeural')}
+                    disabled={isPodcastLoading}
+                  >
+                    🎙️ 인준 (차분한 앵커)
+                  </button>
+                  <button
+                    type="button"
+                    className={`pill-btn ${podcastVoice === 'ko-KR-SunHiNeural' ? 'active' : ''}`}
+                    onClick={() => handleVoiceChange('ko-KR-SunHiNeural')}
+                    disabled={isPodcastLoading}
+                  >
+                    🎙️ 선희 (또렷한 아나운서)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="news-podcast-body">
+              {isPodcastLoading ? (
+                <div className="podcast-loading-state">
+                  <div className="podcast-soundwave">
+                    <span /><span /><span /><span /><span />
+                  </div>
+                  <h4>AI 앵커가 라디오 방송을 녹음하고 있습니다...</h4>
+                  <p>
+                    Gemini 3.8 Flash가 주요 25건 기사를 심층 분석하여 4대 코너 방송 대본을 집필하고,<br />
+                    Microsoft Edge-TTS 초고음질 음성으로 녹음 중입니다. (약 10~15초 소요)
+                  </p>
+                </div>
+              ) : podcastError ? (
+                <div className="podcast-error-state">
+                  <span className="podcast-error-icon">⚠️</span>
+                  <p>{podcastError}</p>
+                  <button onClick={() => handleGeneratePodcast(false)}>
+                    다시 시도하기
+                  </button>
+                </div>
+              ) : !podcastData?.exists ? (
+                <div className="podcast-empty-state">
+                  <div className="podcast-empty-icon-wrap">
+                    <span className="podcast-empty-icon">🎧</span>
+                  </div>
+                  <h3>아직 녹음된 팟캐스트가 없습니다.</h3>
+                  <p>
+                    오늘 수집된 뉴스를 바탕으로 <strong>배경·수치·파급 효과까지 생생하게 해설해주는</strong><br />
+                    맞춤형 데일리 라디오 방송을 지금 생성해보세요.
+                  </p>
+                  <div className="podcast-corner-features">
+                    <div className="feature-item">
+                      <span className="feat-num">1부</span>
+                      <span className="feat-title">오늘의 톱 헤드라인 심층 해설</span>
+                    </div>
+                    <div className="feature-item">
+                      <span className="feat-num">2부</span>
+                      <span className="feat-title">글로벌 IT · AI 테크 시장 동향</span>
+                    </div>
+                    <div className="feature-item">
+                      <span className="feat-num">3부</span>
+                      <span className="feat-title">관심 기업(반도체/빅테크) 집중 포커스</span>
+                    </div>
+                    <div className="feature-item">
+                      <span className="feat-num">4부</span>
+                      <span className="feat-title">클로징 및 하루 1줄 인사이트</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="podcast-start-record-btn"
+                    onClick={() => handleGeneratePodcast(false)}
+                  >
+                    🎙️ {selectedDate} AI 라디오 방송 녹음 시작 (100% 무료)
+                  </button>
+                </div>
+              ) : (
+                <div className="podcast-ready-view">
+                  {/* 오디오 플레이어 카드 */}
+                  <div className="podcast-player-card">
+                    <div className="player-meta-top">
+                      <div className="player-title-box">
+                        <span className="player-badge">
+                          {podcastData.mode === 'deep' ? '🎧 7~10분 심층 방송' : '⚡ 3분 퀵 브리핑'}
+                        </span>
+                        <h4 className="player-title">{podcastData.title}</h4>
+                      </div>
+                      <div className="player-voice-info">
+                        <span className="voice-tag">
+                          {podcastData.voice.includes('InJoon') ? '🎙️ 인준 앵커' : '🎙️ 선희 아나운서'}
+                        </span>
+                        <a
+                          className="podcast-download-btn"
+                          href={podcastData.audio_url}
+                          download={`뉴스팟캐스트_${podcastData.date}_${podcastData.mode}.mp3`}
+                          title="스마트폰이나 다른 기기에서 들을 수 있도록 MP3 파일 다운로드"
+                        >
+                          ⬇️ MP3 다운로드
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* 재생 슬라이더 바 */}
+                    <div className="player-slider-row">
+                      <span className="time-text current">{formatTime(podcastCurrentTime)}</span>
+                      <input
+                        type="range"
+                        className="player-progress-bar"
+                        min="0"
+                        max={podcastDuration || podcastData.duration || 100}
+                        step="0.1"
+                        value={podcastCurrentTime}
+                        onChange={handleSeekChange}
+                      />
+                      <span className="time-text total">
+                        {formatTime(podcastDuration || podcastData.duration)}
+                      </span>
+                    </div>
+
+                    {/* 재생 컨트롤 버튼 군 */}
+                    <div className="player-controls-row">
+                      <div className="speed-buttons">
+                        {[1.0, 1.2, 1.5, 2.0].map(rate => (
+                          <button
+                            key={rate}
+                            type="button"
+                            className={`rate-btn ${podcastPlaybackRate === rate ? 'active' : ''}`}
+                            onClick={() => handleRateChange(rate)}
+                          >
+                            {rate}x
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="main-play-controls">
+                        <button
+                          type="button"
+                          className="seek-btn"
+                          onClick={() => seekPodcast(-10)}
+                          title="10초 뒤로"
+                        >
+                          ⏪ 10초
+                        </button>
+                        <button
+                          type="button"
+                          className="main-play-btn"
+                          onClick={togglePlayPodcast}
+                          title={isPlayingPodcast ? '일시정지' : '재생'}
+                        >
+                          {isPlayingPodcast ? '⏸️' : '▶️'}
+                        </button>
+                        <button
+                          type="button"
+                          className="seek-btn"
+                          onClick={() => seekPodcast(10)}
+                          title="10초 앞으로"
+                        >
+                          10초 ⏩
+                        </button>
+                      </div>
+
+                      <div className="player-volume-placeholder">
+                        <span className="listening-tip">🎧 일하면서 재생 켜두기</span>
+                      </div>
+                    </div>
+
+                    {/* HTML5 Audio 태그 */}
+                    <audio
+                      ref={audioRef}
+                      src={podcastData.audio_url}
+                      onTimeUpdate={() => {
+                        if (audioRef.current) setPodcastCurrentTime(audioRef.current.currentTime)
+                      }}
+                      onLoadedMetadata={() => {
+                        if (audioRef.current) setPodcastDuration(audioRef.current.duration)
+                      }}
+                      onEnded={() => setIsPlayingPodcast(false)}
+                      onError={(e) => {
+                        console.error('오디오 에러:', e)
+                        setPodcastError('오디오를 재생할 수 없습니다.')
+                      }}
+                    />
+                  </div>
+
+                  {/* 라디오 방송 대본 스크립트 뷰어 */}
+                  <div className="podcast-script-card">
+                    <div className="script-card-header">
+                      <div className="script-header-left">
+                        <span className="script-icon">📜</span>
+                        <span className="script-title">라디오 방송 원고 전문</span>
+                        <span className="script-len">
+                          (약 {podcastData.script?.length?.toLocaleString() || 0}자)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="script-copy-btn"
+                        onClick={() => {
+                          navigator.clipboard.writeText(podcastData.script)
+                          showToast('📋 방송 원고가 클립보드에 복사되었습니다.', 'success')
+                        }}
+                      >
+                        📋 원고 복사
+                      </button>
+                    </div>
+
+                    <div className="script-card-body">
+                      {podcastData.script?.split('\n\n').map((paragraph, idx) => (
+                        <p key={idx} className="script-paragraph">
+                          {paragraph}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="news-podcast-footer">
+              <span className="podcast-footer-tip">
+                💡 팟캐스트 창을 닫아도 브라우저 탭을 끄지 않는 한 오디오는 백그라운드에서 계속 재생됩니다.
+              </span>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => setShowPodcastModal(false)}
               >
                 닫기
               </button>
