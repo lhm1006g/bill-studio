@@ -368,7 +368,9 @@
 
 .weekday-header {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  width: 100%;
+  box-sizing: border-box;
   background: rgba(15, 23, 42, 0.8);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   padding: 12px 0;
@@ -379,6 +381,10 @@
   font-size: 13px;
   font-weight: 600;
   color: #94a3b8;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .weekday.sunday {
@@ -391,7 +397,9 @@
 
 .month-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  width: 100%;
+  box-sizing: border-box;
   grid-auto-rows: minmax(110px, auto);
 }
 
@@ -405,6 +413,10 @@
   cursor: pointer;
   transition: background 0.15s;
   min-height: 105px;
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .calendar-cell:nth-child(7n) {
@@ -427,6 +439,9 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .day-number {
@@ -439,6 +454,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .day-number.today-badge {
@@ -461,6 +477,7 @@
   opacity: 0;
   cursor: pointer;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .calendar-cell:hover .quick-add-btn {
@@ -477,6 +494,9 @@
   flex-direction: column;
   gap: 4px;
   overflow: hidden;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .event-pill {
@@ -494,6 +514,9 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .event-pill:hover {
@@ -513,11 +536,15 @@
   color: #94a3b8;
   font-weight: 500;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .event-title {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 500;
 }
 
@@ -525,6 +552,10 @@
   font-size: 10px;
   color: #94a3b8;
   padding-left: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* 아젠다 목록 뷰 */
@@ -1440,6 +1471,10 @@
 
 /* 4. 캘린더 셀 내 공휴일 알약 필 (Pill) */
 .event-pill.holiday-pill {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.26) 0%, rgba(185, 28, 28, 0.26) 100%) !important;
   border: 1px solid rgba(239, 68, 68, 0.45) !important;
   border-left: 3px solid #ef4444 !important;
@@ -1457,9 +1492,15 @@
 .holiday-flag-icon {
   font-size: 11px;
   margin-right: 2px;
+  flex-shrink: 0;
 }
 
 .event-title.holiday-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #fee2e2 !important;
   font-weight: 700;
 }
