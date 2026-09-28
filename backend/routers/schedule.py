@@ -415,7 +415,6 @@ LUNAR_HOLIDAYS_MAP = {
         ("2026-09-24", "추석 전날 (연휴)"),
         ("2026-09-25", "추석"),
         ("2026-09-26", "추석 다음날 (연휴)"),
-        ("2026-10-01", "국군의 날"),
         ("2026-10-05", "개천절 대체공휴일"),
     ],
     2027: [
@@ -430,6 +429,8 @@ LUNAR_HOLIDAYS_MAP = {
     ]
 }
 
+NON_HOLIDAYS = ["식목일", "어버이날", "스승의날", "국군의 날", "국군의날", "제헌절", "크리스마스 이브", "섣달 그믐날"]
+
 def check_is_routine(title: str, description: str = "", calendar_name: str = "") -> bool:
     """제목, 설명, 캘린더 이름으로 루틴 여부 스마트 판별"""
     combined = f"{title} {description} {calendar_name}".lower()
@@ -443,7 +444,16 @@ def check_is_comjjang(title: str, description: str = "", calendar_name: str = ""
 
 
 def check_is_holiday(title: str, description: str = "", calendar_name: str = "") -> bool:
-    """제목, 설명, 캘린더 이름으로 공휴일/휴일 여부 스마트 판별"""
+    """제목, 설명, 캘린더 이름으로 법정 공휴일/휴무일 여부 판별 (쉬지 않는 기념일 제외)"""
+    desc_str = (description or "").strip()
+    # 구글 캘린더 설명이 '기념일'로 시작하는 경우 공휴일(휴무일)이 아님
+    if desc_str.startswith("기념일"):
+        return False
+
+    # 쉬지 않는 일반 기념일 제외
+    if any(nh in title for nh in NON_HOLIDAYS):
+        return False
+
     combined = f"{title} {description} {calendar_name}".lower()
     return any(kw in combined for kw in HOLIDAY_KEYWORDS)
 
@@ -590,11 +600,37 @@ def get_events(
                         
                         is_routine = cal_is_routine or check_is_routine(title, desc, cal_summary)
                         is_comjjang = cal_is_comjjang or check_is_comjjang(title, desc, cal_summary)
-                        is_holiday = cal_is_holiday or check_is_holiday(title, desc, cal_summary)
+                        is_holiday = (cal_is_holiday or check_is_holiday(title, desc, cal_summary)) and check_is_holiday(title, desc, cal_summary)
 
-                        start_date_str = (start.get("dateTime") or start.get("date") or "")[:10]
-                        if is_holiday and start_date_str:
-                            seen_holiday_dates.add(start_date_str)
+                        start_raw = start.get("dateTime") or start.get("date")
+                        end_raw = end.get("dateTime") or end.get("date")
+
+                        # 구글 캘린더 종일(all_day) 일정 정규화:
+                        # 구글 캘린더 API 규격상 종일 일정의 end.date는 '종료일 다음 날(exclusive)'로 반환됩니다.
+                        # (예: 10월 3일 하루짜리 개천절 -> start: "2026-10-03", end: "2026-10-04")
+                        # 이를 보정하지 않으면 10월 3일과 4일 이틀에 걸쳐 표시되므로 inclusive 종료일(end - 1일)로 보정합니다.
+                        if all_day and start.get("date") and end.get("date"):
+                            try:
+                                s_date = datetime.strptime(start.get("date"), "%Y-%m-%d").date()
+                                e_date = datetime.strptime(end.get("date"), "%Y-%m-%d").date()
+                                if e_date > s_date:
+                                    inclusive_end = e_date - timedelta(days=1)
+                                    end_raw = inclusive_end.isoformat()
+                                else:
+                                    end_raw = start.get("date")
+                            except Exception:
+                                end_raw = start.get("date")
+
+                        if is_holiday and start_raw:
+                            try:
+                                s_dt = datetime.strptime(start_raw[:10], "%Y-%m-%d").date()
+                                e_dt = datetime.strptime((end_raw or start_raw)[:10], "%Y-%m-%d").date()
+                                cur = s_dt
+                                while cur <= e_dt:
+                                    seen_holiday_dates.add(cur.isoformat())
+                                    cur += timedelta(days=1)
+                            except Exception:
+                                seen_holiday_dates.add(start_raw[:10])
 
                         color_id = "11" if is_holiday else item.get("colorId", "7" if is_comjjang else "9")
 
@@ -605,8 +641,8 @@ def get_events(
                             "calendar_name": cal_summary,
                             "title": title,
                             "description": desc,
-                            "start": start.get("dateTime") or start.get("date"),
-                            "end": end.get("dateTime") or end.get("date"),
+                            "start": start_raw,
+                            "end": end_raw,
                             "all_day": all_day,
                             "is_routine": is_routine,
                             "is_comjjang": is_comjjang,

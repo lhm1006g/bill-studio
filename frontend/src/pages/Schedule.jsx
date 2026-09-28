@@ -444,13 +444,6 @@ function Schedule() {
                 {cell.day}
               </span>
 
-              {/* 🔴 공휴일 이름 뱃지 (날짜 바로 옆에 선명하게 노출) */}
-              {dayHoliday && (
-                <span className="holiday-name-badge" title={`대한민국 법정 공휴일: ${dayHoliday.title}`}>
-                  {dayHoliday.title}
-                </span>
-              )}
-
               {/* 숨겨진 루틴이 있을 때 날짜 옆에 미니 뱃지 표시 */}
               {hideRoutines && hiddenRoutinesToday.length > 0 && (
                 <span
