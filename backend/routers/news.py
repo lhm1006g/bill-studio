@@ -1049,6 +1049,182 @@ def get_podcast_audio(podcast_id: str):
     )
 
 
+# ─── 💬 팟캐스트 청취 중 실시간 Q&A 질의응답 API ─────────────────────────
+class PodcastAskRequest(BaseModel):
+    question: str
+    podcast_id: Optional[str] = None
+    voice: str = "ko-KR-InJoonNeural"
+    read_aloud: bool = False
+    chat_history: Optional[List[dict]] = []
+
+
+@router.post("/dates/{date}/podcast/ask")
+async def ask_podcast_question(date: str, body: PodcastAskRequest):
+    """팟캐스트 대본 및 당일 기사를 컨텍스트로 하여 청취자의 질문에 실시간 답변 및 음성 합성"""
+    if not body.question.strip():
+        raise HTTPException(status_code=400, detail="질문 내용을 입력해주세요.")
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+
+    # 1. 팟캐스트 대본 로드
+    podcast_script = ""
+    if body.podcast_id:
+        row = conn.execute("SELECT script, title FROM daily_news_podcasts WHERE id = ?", (body.podcast_id,)).fetchone()
+        if row:
+            podcast_script = row["script"] or ""
+    if not podcast_script:
+        row = conn.execute("SELECT script FROM daily_news_podcasts WHERE date = ? ORDER BY created_at DESC LIMIT 1", (date,)).fetchone()
+        if row:
+            podcast_script = row["script"] or ""
+
+    # 2. 당일 주요 기사 25건 로드
+    articles = conn.execute("""
+        SELECT a.title, a.summary, a.mentioned_stocks, s.name as source_name, s.category
+        FROM news_articles a
+        JOIN news_sources s ON a.source_id = s.id
+        WHERE COALESCE(NULLIF(substr(a.published_at, 1, 10), ''), substr(a.fetched_at, 1, 10)) = ?
+        ORDER BY 
+            CASE WHEN a.mentioned_stocks IS NOT NULL AND a.mentioned_stocks != '' THEN 0 ELSE 1 END,
+            a.published_at DESC
+        LIMIT 25
+    """, (date,)).fetchall()
+    conn.close()
+
+    article_lines = []
+    for i, a in enumerate(articles, 1):
+        stock_tag = f" [관련: {a['mentioned_stocks']}]" if a["mentioned_stocks"] else ""
+        summary_clean = (a["summary"] or "")[:140].replace("\n", " ")
+        article_lines.append(f"{i}. [{a['category']}/{a['source_name']}] {a['title']}{stock_tag} - {summary_clean}")
+    articles_summary = "\n".join(article_lines)
+
+    # 3. 이전 대화 기록 정돈
+    history_lines = []
+    for h in (body.chat_history or [])[-4:]:
+        role = "청취자" if h.get("role") == "user" else "앵커"
+        history_lines.append(f"{role}: {h.get('text', '')}")
+    history_text = "\n".join(history_lines) if history_lines else "(첫 질문입니다)"
+
+    prompt = f"""당신은 현재 {date} 데일리 경제·IT 라디오 팟캐스트를 진행하고 있는 전문 수석 뉴스 앵커이자 애널리스트입니다.
+청취자가 일하면서 라디오 방송을 듣다가 궁금한 점이 생겨 실시간으로 질문했습니다.
+
+[오늘 방송된 라디오 팟캐스트 대본 요약]
+{podcast_script[:3500]}
+
+[오늘 하루 수집된 주요 뉴스 팩트 및 배경]
+{articles_summary}
+
+[이전 대화 맥락]
+{history_text}
+
+[청취자의 질문]
+{body.question}
+
+[답변 작성 지침 - 절대 준수]
+1. 청취자가 귀로 듣거나 눈으로 빠르게 읽기 편안하도록, 전문적이면서도 아주 친절하고 명쾌한 방송 구어체(~습니다, ~입니다)로 답변하세요.
+2. 팟캐스트 대본과 뉴스 기사에 등장한 구체적인 사실, 수치, 배경 원인, 그리고 이것이 시장 및 관련 기업(주가, 기술 패권 등)에 미치는 파급 효과를 명확하게 설명하세요.
+3. 2~3개의 깔끔한 단락으로 구조화하여 답변하세요. (특수 마크다운 헤더(#)는 최소화하고, 문단 중심으로 자연스럽게 서술하세요.)
+4. 답변 시작은 가볍게 청취자의 궁금증을 공감하며 자연스럽게 열어주세요. (예: "네, 그 부분에 대해 말씀드리겠습니다.", "청취자분께서 아주 날카로운 핵심을 짚어주셨는데요,")"""
+
+    async def stream_answer():
+        accumulated = ""
+        # 1. agy CLI (Gemini 3.8 Flash) 스트리밍
+        try:
+            cmd = [
+                AGY_BIN,
+                "-p", prompt,
+                "--model", "gemini-3.8-flash-medium",
+                "--output-format", "stream-json",
+                "--dangerously-skip-permissions",
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            while True:
+                line_bytes = await proc.stdout.readline()
+                if not line_bytes:
+                    break
+                line_str = line_bytes.decode("utf-8", errors="replace").strip()
+                if not line_str:
+                    continue
+                try:
+                    data = json.loads(line_str)
+                    if data.get("event") == "step_update":
+                        delta = data.get("step_update", {}).get("text_delta", "")
+                        if delta:
+                            accumulated += delta
+                            yield f"data: {json.dumps({'type': 'token', 'text': delta})}\n\n"
+                except Exception:
+                    continue
+
+            await proc.wait()
+        except Exception as e:
+            # fallback: Ollama
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    async with client.stream(
+                        "POST",
+                        "http://localhost:11434/api/generate",
+                        json={
+                            "model": "gemma3:12b",
+                            "prompt": prompt,
+                            "stream": True,
+                        },
+                    ) as resp:
+                        async for line in resp.aiter_lines():
+                            if not line:
+                                continue
+                            try:
+                                d = json.loads(line)
+                                token = d.get("response", "")
+                                accumulated += token
+                                yield f"data: {json.dumps({'type': 'token', 'text': token})}\n\n"
+                                if d.get("done"):
+                                    break
+                            except Exception:
+                                continue
+            except Exception as e2:
+                yield f"data: {json.dumps({'type': 'error', 'message': f'답변 생성 실패: {str(e2)}'})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+
+        audio_url = None
+        # 2. 음성으로 듣기(read_aloud) 옵션 처리
+        if body.read_aloud and accumulated:
+            try:
+                tts_text = clean_script_for_tts(accumulated)
+                ans_id = hashlib.md5(f"{time.time()}_{accumulated[:50]}".encode()).hexdigest()[:12]
+                ans_audio_path = PODCAST_DIR / f"qa_ans_{ans_id}.mp3"
+                comm = edge_tts.Communicate(tts_text, body.voice, rate="+4%")
+                await comm.save(str(ans_audio_path))
+                audio_url = f"/api/news/podcasts/answers/{ans_id}/audio"
+            except Exception as err:
+                print(f"[WARN] Q&A 음성 합성 실패: {err}")
+
+        yield f"data: {json.dumps({'type': 'done', 'full_text': accumulated, 'audio_url': audio_url})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream_answer(), media_type="text/event-stream")
+
+
+@router.get("/podcasts/answers/{answer_id}/audio")
+def get_answer_audio(answer_id: str):
+    """Q&A 음성 답변 MP3 스트리밍 서빙"""
+    p = PODCAST_DIR / f"qa_ans_{answer_id}.mp3"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="답변 음성 파일을 찾을 수 없습니다.")
+
+    return FileResponse(
+        p,
+        media_type="audio/mpeg",
+        headers={"Accept-Ranges": "bytes"}
+    )
+
+
+
 @router.get("/articles/count")
 def get_unread_count():
     conn = sqlite3.connect(DB_PATH)

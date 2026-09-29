@@ -98,6 +98,15 @@ export default function News() {
   const [podcastDuration, setPodcastDuration] = useState(0)
   const audioRef = useRef(null)
 
+  // 💬 팟캐스트 청취 중 실시간 AI Q&A 상태
+  const [qaQuestion, setQaQuestion] = useState('')
+  const [qaMessages, setQaMessages] = useState([])
+  const [isQaAsking, setIsQaAsking] = useState(false)
+  const [qaReadAloud, setQaReadAloud] = useState(true) // AI 앵커 음성으로 답변 듣기
+  const [wasPodcastPlaying, setWasPodcastPlaying] = useState(false)
+  const answerAudioRef = useRef(null)
+  const qaChatEndRef = useRef(null)
+
   // ─── 초기 데이터 로딩 ────────────────────────────────────────
   useEffect(() => {
     loadSources()
@@ -419,6 +428,128 @@ export default function News() {
     if (audioRef.current) {
       audioRef.current.playbackRate = rate
     }
+  }
+
+  // 💬 팟캐스트 청취 중 실시간 Q&A 질문 전송
+  const handleSendQaQuestion = async (customQ) => {
+    const q = (customQ || qaQuestion).trim()
+    if (!q || isQaAsking) return
+
+    // 팟캐스트가 재생 중이었다면 자동 일시정지 (스마트 재생 제어)
+    if (isPlayingPodcast && audioRef.current) {
+      audioRef.current.pause()
+      setIsPlayingPodcast(false)
+      setWasPodcastPlaying(true)
+    }
+
+    const targetDate = selectedDate || (dates.length > 0 ? dates[0].date : '')
+    const userMsgId = Date.now()
+    const assistantMsgId = userMsgId + 1
+
+    setQaMessages(prev => [
+      ...prev,
+      { id: userMsgId, role: 'user', text: q },
+      { id: assistantMsgId, role: 'assistant', text: '', isStreaming: true, audio_url: null }
+    ])
+    setQaQuestion('')
+    setIsQaAsking(true)
+
+    setTimeout(() => {
+      qaChatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }, 100)
+
+    try {
+      const response = await fetch(`${API}/dates/${targetDate}/podcast/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: q,
+          podcast_id: podcastData?.id,
+          voice: podcastVoice,
+          read_aloud: qaReadAloud,
+          chat_history: qaMessages.map(m => ({ role: m.role, text: m.text }))
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`질문 응답 실패 (${response.status})`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let accumulated = ''
+      let buffer = ''
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const dataStr = line.slice(6).trim()
+          if (dataStr === '[DONE]') break
+
+          try {
+            const parsed = JSON.parse(dataStr)
+            if (parsed.type === 'token' && parsed.text) {
+              accumulated += parsed.text
+              setQaMessages(prev => prev.map(m => 
+                m.id === assistantMsgId ? { ...m, text: accumulated } : m
+              ))
+              qaChatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+            } else if (parsed.type === 'done') {
+              accumulated = parsed.full_text || accumulated
+              const audioUrl = parsed.audio_url
+              setQaMessages(prev => prev.map(m => 
+                m.id === assistantMsgId ? { ...m, text: accumulated, isStreaming: false, audio_url: audioUrl } : m
+              ))
+              // 음성 자동 재생 (AI 앵커의 음성 답변)
+              if (audioUrl && answerAudioRef.current) {
+                answerAudioRef.current.src = audioUrl
+                answerAudioRef.current.play().catch(e => console.log('답변 오디오 재생 에러:', e))
+              }
+            } else if (parsed.type === 'error') {
+              setQaMessages(prev => prev.map(m => 
+                m.id === assistantMsgId ? { ...m, text: `⚠️ ${parsed.message}`, isStreaming: false } : m
+              ))
+            }
+          } catch {
+            // json 무시
+          }
+        }
+      }
+    } catch (err) {
+      setQaMessages(prev => prev.map(m => 
+        m.id === assistantMsgId ? { ...m, text: `⚠️ 오류: ${err.message}`, isStreaming: false } : m
+      ))
+    } finally {
+      setIsQaAsking(false)
+    }
+  }
+
+  // 팟캐스트 원래 위치에서 이어듣기
+  const handleResumePodcast = () => {
+    if (answerAudioRef.current) {
+      answerAudioRef.current.pause()
+    }
+    if (audioRef.current) {
+      audioRef.current.play().then(() => {
+        setIsPlayingPodcast(true)
+        setWasPodcastPlaying(false)
+      }).catch(e => console.log('팟캐스트 재개 에러:', e))
+    }
+  }
+
+  // Q&A 대화 초기화
+  const handleClearQaMessages = () => {
+    if (answerAudioRef.current) {
+      answerAudioRef.current.pause()
+    }
+    setQaMessages([])
   }
 
   // 검색 디바운스
@@ -1567,141 +1698,287 @@ export default function News() {
                   </button>
                 </div>
               ) : (
-                <div className="podcast-ready-view">
-                  {/* 오디오 플레이어 카드 */}
-                  <div className="podcast-player-card">
-                    <div className="player-meta-top">
-                      <div className="player-title-box">
-                        <span className="player-badge">
-                          {podcastData.mode === 'deep' ? '🎧 7~10분 심층 방송' : '⚡ 3분 퀵 브리핑'}
-                        </span>
-                        <h4 className="player-title">{podcastData.title}</h4>
-                      </div>
-                      <div className="player-voice-info">
-                        <span className="voice-tag">
-                          {podcastData.voice.includes('InJoon') ? '🎙️ 인준 앵커' : '🎙️ 선희 아나운서'}
-                        </span>
-                        <a
-                          className="podcast-download-btn"
-                          href={podcastData.audio_url}
-                          download={`뉴스팟캐스트_${podcastData.date}_${podcastData.mode}.mp3`}
-                          title="스마트폰이나 다른 기기에서 들을 수 있도록 MP3 파일 다운로드"
-                        >
-                          ⬇️ MP3 다운로드
-                        </a>
-                      </div>
-                    </div>
-
-                    {/* 재생 슬라이더 바 */}
-                    <div className="player-slider-row">
-                      <span className="time-text current">{formatTime(podcastCurrentTime)}</span>
-                      <input
-                        type="range"
-                        className="player-progress-bar"
-                        min="0"
-                        max={podcastDuration || podcastData.duration || 100}
-                        step="0.1"
-                        value={podcastCurrentTime}
-                        onChange={handleSeekChange}
-                      />
-                      <span className="time-text total">
-                        {formatTime(podcastDuration || podcastData.duration)}
-                      </span>
-                    </div>
-
-                    {/* 재생 컨트롤 버튼 군 */}
-                    <div className="player-controls-row">
-                      <div className="speed-buttons">
-                        {[1.0, 1.2, 1.5, 2.0].map(rate => (
-                          <button
-                            key={rate}
-                            type="button"
-                            className={`rate-btn ${podcastPlaybackRate === rate ? 'active' : ''}`}
-                            onClick={() => handleRateChange(rate)}
+                <div className="podcast-ready-layout">
+                  {/* ─── 좌측: 플레이어 & 대본 ─── */}
+                  <div className="podcast-main-col">
+                    {/* 오디오 플레이어 카드 */}
+                    <div className="podcast-player-card">
+                      <div className="player-meta-top">
+                        <div className="player-title-box">
+                          <span className="player-badge">
+                            {podcastData.mode === 'deep' ? '🎧 7~10분 심층 방송' : '⚡ 3분 퀵 브리핑'}
+                          </span>
+                          <h4 className="player-title">{podcastData.title}</h4>
+                        </div>
+                        <div className="player-voice-info">
+                          <span className="voice-tag">
+                            {podcastData.voice.includes('InJoon') ? '🎙️ 인준 앵커' : '🎙️ 선희 아나운서'}
+                          </span>
+                          <a
+                            className="podcast-download-btn"
+                            href={podcastData.audio_url}
+                            download={`뉴스팟캐스트_${podcastData.date}_${podcastData.mode}.mp3`}
+                            title="스마트폰이나 다른 기기에서 들을 수 있도록 MP3 파일 다운로드"
                           >
-                            {rate}x
+                            ⬇️ MP3 다운로드
+                          </a>
+                        </div>
+                      </div>
+
+                      {/* 재생 슬라이더 바 */}
+                      <div className="player-slider-row">
+                        <span className="time-text current">{formatTime(podcastCurrentTime)}</span>
+                        <input
+                          type="range"
+                          className="player-progress-bar"
+                          min="0"
+                          max={podcastDuration || podcastData.duration || 100}
+                          step="0.1"
+                          value={podcastCurrentTime}
+                          onChange={handleSeekChange}
+                        />
+                        <span className="time-text total">
+                          {formatTime(podcastDuration || podcastData.duration)}
+                        </span>
+                      </div>
+
+                      {/* 재생 컨트롤 버튼 군 */}
+                      <div className="player-controls-row">
+                        <div className="speed-buttons">
+                          {[1.0, 1.2, 1.5, 2.0].map(rate => (
+                            <button
+                              key={rate}
+                              type="button"
+                              className={`rate-btn ${podcastPlaybackRate === rate ? 'active' : ''}`}
+                              onClick={() => handleRateChange(rate)}
+                            >
+                              {rate}x
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="main-play-controls">
+                          <button
+                            type="button"
+                            className="seek-btn"
+                            onClick={() => seekPodcast(-10)}
+                            title="10초 뒤로"
+                          >
+                            ⏪ 10초
                           </button>
+                          <button
+                            type="button"
+                            className="main-play-btn"
+                            onClick={togglePlayPodcast}
+                            title={isPlayingPodcast ? '일시정지' : '재생'}
+                          >
+                            {isPlayingPodcast ? '⏸️' : '▶️'}
+                          </button>
+                          <button
+                            type="button"
+                            className="seek-btn"
+                            onClick={() => seekPodcast(10)}
+                            title="10초 앞으로"
+                          >
+                            10초 ⏩
+                          </button>
+                        </div>
+
+                        <div className="player-volume-placeholder">
+                          <span className="listening-tip">🎧 일하면서 재생 켜두기</span>
+                        </div>
+                      </div>
+
+                      {/* HTML5 Audio 태그 */}
+                      <audio
+                        ref={audioRef}
+                        src={podcastData.audio_url}
+                        onTimeUpdate={() => {
+                          if (audioRef.current) setPodcastCurrentTime(audioRef.current.currentTime)
+                        }}
+                        onLoadedMetadata={() => {
+                          if (audioRef.current) setPodcastDuration(audioRef.current.duration)
+                        }}
+                        onEnded={() => setIsPlayingPodcast(false)}
+                        onError={(e) => {
+                          console.error('오디오 에러:', e)
+                          setPodcastError('오디오를 재생할 수 없습니다.')
+                        }}
+                      />
+                    </div>
+
+                    {/* 라디오 방송 대본 스크립트 뷰어 */}
+                    <div className="podcast-script-card">
+                      <div className="script-card-header">
+                        <div className="script-header-left">
+                          <span className="script-icon">📜</span>
+                          <span className="script-title">라디오 방송 원고 전문</span>
+                          <span className="script-len">
+                            (약 {podcastData.script?.length?.toLocaleString() || 0}자)
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="script-copy-btn"
+                          onClick={() => {
+                            navigator.clipboard.writeText(podcastData.script)
+                            showToast('📋 방송 원고가 클립보드에 복사되었습니다.', 'success')
+                          }}
+                        >
+                          📋 원고 복사
+                        </button>
+                      </div>
+
+                      <div className="script-card-body">
+                        {podcastData.script?.split('\n\n').map((paragraph, idx) => (
+                          <p key={idx} className="script-paragraph">
+                            {paragraph}
+                          </p>
                         ))}
                       </div>
-
-                      <div className="main-play-controls">
-                        <button
-                          type="button"
-                          className="seek-btn"
-                          onClick={() => seekPodcast(-10)}
-                          title="10초 뒤로"
-                        >
-                          ⏪ 10초
-                        </button>
-                        <button
-                          type="button"
-                          className="main-play-btn"
-                          onClick={togglePlayPodcast}
-                          title={isPlayingPodcast ? '일시정지' : '재생'}
-                        >
-                          {isPlayingPodcast ? '⏸️' : '▶️'}
-                        </button>
-                        <button
-                          type="button"
-                          className="seek-btn"
-                          onClick={() => seekPodcast(10)}
-                          title="10초 앞으로"
-                        >
-                          10초 ⏩
-                        </button>
-                      </div>
-
-                      <div className="player-volume-placeholder">
-                        <span className="listening-tip">🎧 일하면서 재생 켜두기</span>
-                      </div>
                     </div>
-
-                    {/* HTML5 Audio 태그 */}
-                    <audio
-                      ref={audioRef}
-                      src={podcastData.audio_url}
-                      onTimeUpdate={() => {
-                        if (audioRef.current) setPodcastCurrentTime(audioRef.current.currentTime)
-                      }}
-                      onLoadedMetadata={() => {
-                        if (audioRef.current) setPodcastDuration(audioRef.current.duration)
-                      }}
-                      onEnded={() => setIsPlayingPodcast(false)}
-                      onError={(e) => {
-                        console.error('오디오 에러:', e)
-                        setPodcastError('오디오를 재생할 수 없습니다.')
-                      }}
-                    />
                   </div>
 
-                  {/* 라디오 방송 대본 스크립트 뷰어 */}
-                  <div className="podcast-script-card">
-                    <div className="script-card-header">
-                      <div className="script-header-left">
-                        <span className="script-icon">📜</span>
-                        <span className="script-title">라디오 방송 원고 전문</span>
-                        <span className="script-len">
-                          (약 {podcastData.script?.length?.toLocaleString() || 0}자)
-                        </span>
+                  {/* ─── 우측: 💬 실시간 앵커 Q&A 패널 ─── */}
+                  <div className="podcast-qa-col">
+                    <div className="podcast-qa-card">
+                      <div className="qa-card-header">
+                        <div className="qa-header-left">
+                          <span className="qa-header-icon">💬</span>
+                          <div>
+                            <h4 className="qa-header-title">앵커에게 실시간 질문</h4>
+                            <span className="qa-header-sub">궁금한 점을 즉시 물어보세요</span>
+                          </div>
+                        </div>
+                        <div className="qa-header-right">
+                          <label className="qa-voice-toggle-label" title="체크 시 AI 앵커의 음성으로 답변을 들려줍니다">
+                            <input
+                              type="checkbox"
+                              checked={qaReadAloud}
+                              onChange={e => setQaReadAloud(e.target.checked)}
+                            />
+                            <span>🎙️ 음성 답변</span>
+                          </label>
+                          {qaMessages.length > 0 && (
+                            <button
+                              type="button"
+                              className="qa-clear-btn"
+                              onClick={handleClearQaMessages}
+                              title="대화 지우기"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        className="script-copy-btn"
-                        onClick={() => {
-                          navigator.clipboard.writeText(podcastData.script)
-                          showToast('📋 방송 원고가 클립보드에 복사되었습니다.', 'success')
+
+                      {/* 팟캐스트 스마트 재개 배너 */}
+                      {wasPodcastPlaying && (
+                        <div className="qa-resume-banner">
+                          <span>⏸️ 질문으로 팟캐스트가 일시정지되었습니다.</span>
+                          <button
+                            type="button"
+                            className="qa-resume-btn"
+                            onClick={handleResumePodcast}
+                          >
+                            ▶️ 원래 위치에서 이어듣기
+                          </button>
+                        </div>
+                      )}
+
+                      {/* 추천 질문 칩 */}
+                      <div className="qa-chips-row">
+                        <span className="qa-chips-label">💡 추천 질문:</span>
+                        <div className="qa-chips-list">
+                          {[
+                            '방금 말한 핵심 이슈 쉽게 요약해줘',
+                            '이 이슈가 내일 주가에 미칠 영향은?',
+                            '스페이스X 스타십 성공 의미는?',
+                            '반도체 투톱 급락 원인 설명해줘'
+                          ].map(chip => (
+                            <button
+                              key={chip}
+                              type="button"
+                              className="qa-chip-btn"
+                              onClick={() => handleSendQaQuestion(chip)}
+                              disabled={isQaAsking}
+                            >
+                              {chip}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* 대화 메시지 목록 */}
+                      <div className="qa-messages-list">
+                        {qaMessages.length === 0 ? (
+                          <div className="qa-empty-msg">
+                            <span className="qa-empty-icon">🎧</span>
+                            <p>
+                              팟캐스트를 들으시면서 <strong>궁금한 내용, 종목 영향, 배경</strong>을 편하게 물어보세요.<br />
+                              AI 앵커가 당일 뉴스 팩트를 바탕으로 친절하게 대답해 드립니다.
+                            </p>
+                          </div>
+                        ) : (
+                          qaMessages.map(msg => (
+                            <div key={msg.id} className={`qa-msg-bubble ${msg.role}`}>
+                              <div className="msg-bubble-meta">
+                                <span className="msg-role-tag">
+                                  {msg.role === 'user' ? '👤 나' : `🎙️ 앵커 (${podcastVoice.includes('InJoon') ? '인준' : '선희'})`}
+                                </span>
+                                {msg.audio_url && (
+                                  <button
+                                    type="button"
+                                    className="msg-audio-play-btn"
+                                    onClick={() => {
+                                      if (answerAudioRef.current) {
+                                        answerAudioRef.current.src = msg.audio_url
+                                        answerAudioRef.current.play()
+                                      }
+                                    }}
+                                    title="앵커 목소리로 다시 듣기"
+                                  >
+                                    🔊 음성 다시 듣기
+                                  </button>
+                                )}
+                              </div>
+                              <div className="msg-bubble-content">
+                                {msg.text || (msg.isStreaming ? '답변을 준비하고 있습니다...' : '')}
+                                {msg.isStreaming && <span className="briefing-cursor">▋</span>}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                        <div ref={qaChatEndRef} />
+                      </div>
+
+                      {/* 하단 질문 입력 폼 */}
+                      <form
+                        className="qa-input-form"
+                        onSubmit={e => {
+                          e.preventDefault()
+                          handleSendQaQuestion()
                         }}
                       >
-                        📋 원고 복사
-                      </button>
-                    </div>
+                        <input
+                          type="text"
+                          className="qa-input-field"
+                          placeholder="예: 엔비디아 자사주 매입이 왜 대단해? (Enter 전송)"
+                          value={qaQuestion}
+                          onChange={e => setQaQuestion(e.target.value)}
+                          disabled={isQaAsking}
+                        />
+                        <button
+                          type="submit"
+                          className="qa-send-btn"
+                          disabled={!qaQuestion.trim() || isQaAsking}
+                        >
+                          {isQaAsking ? '...' : '전송 ↵'}
+                        </button>
+                      </form>
 
-                    <div className="script-card-body">
-                      {podcastData.script?.split('\n\n').map((paragraph, idx) => (
-                        <p key={idx} className="script-paragraph">
-                          {paragraph}
-                        </p>
-                      ))}
+                      {/* 답변 오디오 태그 */}
+                      <audio ref={answerAudioRef} style={{ display: 'none' }} />
                     </div>
                   </div>
                 </div>
