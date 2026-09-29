@@ -92,7 +92,7 @@ export default function News() {
   const [podcastData, setPodcastData] = useState(null)
   const [isPodcastLoading, setIsPodcastLoading] = useState(false)
   const [podcastError, setPodcastError] = useState('')
-  const [podcastPlaybackRate, setPodcastPlaybackRate] = useState(1.0)
+  const [podcastPlaybackRate, setPodcastPlaybackRate] = useState(1.5) // 기본 1.5배속
   const [isPlayingPodcast, setIsPlayingPodcast] = useState(false)
   const [podcastCurrentTime, setPodcastCurrentTime] = useState(0)
   const [podcastDuration, setPodcastDuration] = useState(0)
@@ -400,6 +400,7 @@ export default function News() {
       audioRef.current.pause()
       setIsPlayingPodcast(false)
     } else {
+      audioRef.current.playbackRate = podcastPlaybackRate
       audioRef.current.play().then(() => {
         setIsPlayingPodcast(true)
       }).catch(err => {
@@ -537,6 +538,7 @@ export default function News() {
       answerAudioRef.current.pause()
     }
     if (audioRef.current) {
+      audioRef.current.playbackRate = podcastPlaybackRate
       audioRef.current.play().then(() => {
         setIsPlayingPodcast(true)
         setWasPodcastPlaying(false)
@@ -1797,7 +1799,15 @@ export default function News() {
                           if (audioRef.current) setPodcastCurrentTime(audioRef.current.currentTime)
                         }}
                         onLoadedMetadata={() => {
-                          if (audioRef.current) setPodcastDuration(audioRef.current.duration)
+                          if (audioRef.current) {
+                            setPodcastDuration(audioRef.current.duration)
+                            audioRef.current.playbackRate = podcastPlaybackRate
+                          }
+                        }}
+                        onPlay={() => {
+                          if (audioRef.current) {
+                            audioRef.current.playbackRate = podcastPlaybackRate
+                          }
                         }}
                         onEnded={() => setIsPlayingPodcast(false)}
                         onError={(e) => {
