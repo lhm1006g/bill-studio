@@ -511,6 +511,7 @@ export default function News() {
               // 음성 자동 재생 (AI 앵커의 음성 답변)
               if (audioUrl && answerAudioRef.current) {
                 answerAudioRef.current.src = audioUrl
+                answerAudioRef.current.playbackRate = podcastPlaybackRate
                 answerAudioRef.current.play().catch(e => console.log('답변 오디오 재생 에러:', e))
               }
             } else if (parsed.type === 'error') {
@@ -1885,13 +1886,14 @@ export default function News() {
                       {/* 팟캐스트 스마트 재개 배너 */}
                       {wasPodcastPlaying && (
                         <div className="qa-resume-banner">
-                          <span>⏸️ 질문으로 팟캐스트가 일시정지되었습니다.</span>
+                          <span>⏸️ 답변 음성이 끝나면 팟캐스트가 자동으로 이어집니다.</span>
                           <button
                             type="button"
                             className="qa-resume-btn"
                             onClick={handleResumePodcast}
+                            title="답변을 기다리지 않고 지금 바로 팟캐스트 이어듣기"
                           >
-                            ▶️ 원래 위치에서 이어듣기
+                            ▶️ 지금 바로 이어듣기
                           </button>
                         </div>
                       )}
@@ -1987,8 +1989,21 @@ export default function News() {
                         </button>
                       </form>
 
-                      {/* 답변 오디오 태그 */}
-                      <audio ref={answerAudioRef} style={{ display: 'none' }} />
+                      {/* 답변 오디오 태그: 답변 낭독 완료 시 원래 팟캐스트 자동 이어 재생 */}
+                      <audio
+                        ref={answerAudioRef}
+                        style={{ display: 'none' }}
+                        onPlay={() => {
+                          if (answerAudioRef.current) {
+                            answerAudioRef.current.playbackRate = podcastPlaybackRate
+                          }
+                        }}
+                        onEnded={() => {
+                          // 앵커의 음성 답변이 모두 끝나면 팟캐스트 원래 위치에서 자동으로 이어서 재생!
+                          handleResumePodcast()
+                          showToast('▶️ 답변 낭독 완료: 팟캐스트를 이어서 재생합니다.', 'info')
+                        }}
+                      />
                     </div>
                   </div>
                 </div>
