@@ -312,13 +312,13 @@ def get_calendars():
         print(f"[Schedule] 캘린더 목록 조회 실패: {e}")
         return [
             {"id": "primary", "summary": "📌 스튜디오 주요 일정", "primary": True, "is_routine": False, "is_comjjang": False},
-            {"id": "comjjang", "summary": "💻 컴짱 회의 일정", "primary": False, "is_routine": False, "is_comjjang": True},
+            {"id": "comjjang", "summary": "💻 컴짱", "primary": False, "is_routine": False, "is_comjjang": True},
             {"id": "routine", "summary": "🚲 일상 루틴 (자전거 등)", "primary": False, "is_routine": True, "is_comjjang": False}
         ]
 
 
 def get_or_create_comjjang_calendar(service=None) -> str:
-    """구글 캘린더에서 '💻 컴짱 회의' 전용 캘린더를 찾거나 없으면 자동 생성하여 ID 반환"""
+    """구글 캘린더에서 '💻 컴짱' 전용 캘린더를 찾거나 없으면 자동 생성하여 ID 반환"""
     if not service:
         service = get_calendar_service()
     if not service:
@@ -331,8 +331,8 @@ def get_or_create_comjjang_calendar(service=None) -> str:
                 return cal.get("id")
         # 없으면 새로 생성
         new_cal = {
-            "summary": "💻 컴짱 회의",
-            "description": "컴짱 회의록에서 자동 추출된 업무 및 일정 (Bill Studio 연동)",
+            "summary": "💻 컴짱",
+            "description": "컴짱에서 자동 추출된 업무 및 일정 (Bill Studio 연동)",
             "timeZone": "Asia/Seoul"
         }
         created = service.calendars().insert(body=new_cal).execute()
@@ -344,13 +344,13 @@ def get_or_create_comjjang_calendar(service=None) -> str:
 
 @router.post("/calendars/create-comjjang")
 def create_comjjang_calendar_api():
-    """구글 계정에 '💻 컴짱 회의' 전용 캘린더를 원클릭으로 생성"""
+    """구글 계정에 '💻 컴짱' 전용 캘린더를 원클릭으로 생성"""
     service = get_calendar_service()
     if not service:
         raise HTTPException(status_code=401, detail="구글 연동이 필요합니다.")
     try:
         cal_id = get_or_create_comjjang_calendar(service)
-        return {"message": "구글 캘린더에 '💻 컴짱 회의' 캘린더가 준비되었습니다!", "calendar_id": cal_id}
+        return {"message": "구글 캘린더에 '💻 컴짱' 캘린더가 준비되었습니다!", "calendar_id": cal_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"캘린더 생성 실패: {e}")
 
@@ -685,9 +685,25 @@ def get_events(
             seen_holiday_dates.add(h_date)
             merged_events.append(hol)
 
+    # 4. 동일 일정 중복 방지 (Deduplication) 안전장치
+    # 구글 캘린더와 로컬 DB 간 동일 일정 또는 중복 생성된 이벤트가 화면에 2개 이상 표시되지 않도록 보장
+    deduped_events = []
+    seen_event_keys = set()
+    for ev in merged_events:
+        t_clean = (ev.get("title") or "").strip()
+        s_raw = str(ev.get("start") or "")
+        # 종일 일정이면 YYYY-MM-DD 기준, 시간 일정이면 YYYY-MM-DDTHH:mm 기준
+        date_key = s_raw[:10] if ev.get("all_day") else s_raw[:16]
+        ev_key = (t_clean, date_key)
+
+        if ev_key in seen_event_keys:
+            continue
+        seen_event_keys.add(ev_key)
+        deduped_events.append(ev)
+
     return {
         "time_zone": "Asia/Seoul",
-        "events": merged_events
+        "events": deduped_events
     }
 
 

@@ -387,6 +387,13 @@ def create_manual_meeting(body: MeetingCreate):
     ))
     conn.commit()
     conn.close()
+
+    if body.action_items:
+        try:
+            sync_action_items_to_schedule(meeting_id, body.action_items, body.title, body.meeting_date or "")
+        except Exception as e:
+            print(f"[Meeting Manual Sync Error] {e}")
+
     return {"ok": True, "id": meeting_id}
 
 
@@ -429,7 +436,18 @@ def update_meeting(meeting_id: str, body: MeetingUpdate):
 
     c.execute(f"UPDATE meetings SET {', '.join(updates)} WHERE id = ?", params)
     conn.commit()
+
+    # 수정된 정보 조회 후 액션 아이템 동기화
+    row = c.execute("SELECT title, meeting_date, action_items FROM meetings WHERE id = ?", (meeting_id,)).fetchone()
     conn.close()
+
+    if row and row[2]:
+        try:
+            items = json.loads(row[2])
+            sync_action_items_to_schedule(meeting_id, items, row[0], row[1] or "")
+        except Exception as e:
+            print(f"[Meeting Update Sync Error] {e}")
+
     return {"ok": True}
 
 
@@ -537,7 +555,7 @@ async def resummarize_meeting(meeting_id: str, body: Optional[ResummarizeRequest
     # 액션 아이템 중 날짜가 있는 일정을 컴짱 캘린더에 자동 동기화
     synced_count = 0
     try:
-        synced_count = sync_action_items_to_schedule(meeting_id, action_items, final_title)
+        synced_count = sync_action_items_to_schedule(meeting_id, action_items, final_title, m_date)
     except Exception as e:
         print(f"[Meeting] 일정 자동 동기화 예외: {e}")
 
@@ -557,17 +575,17 @@ def sync_meeting_schedules(meeting_id: str):
     """해당 회의의 액션 아이템들을 컴짱 캘린더로 수동 동기화"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT title, action_items FROM meetings WHERE id = ?", (meeting_id,)).fetchone()
+    row = conn.execute("SELECT title, action_items, meeting_date FROM meetings WHERE id = ?", (meeting_id,)).fetchone()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="회의를 찾을 수 없습니다.")
 
     items = json.loads(row["action_items"]) if row["action_items"] else []
-    synced = sync_action_items_to_schedule(meeting_id, items, row["title"])
+    synced = sync_action_items_to_schedule(meeting_id, items, row["title"], row["meeting_date"] or "")
     return {
         "ok": True,
         "synced_count": synced,
-        "message": f"{synced}개의 일정이 '💻 컴짱 회의' 캘린더에 동기화되었습니다!"
+        "message": f"{synced}개의 일정이 '💻 컴짱' 캘린더에 동기화되었습니다!"
     }
 
 
@@ -600,13 +618,18 @@ async def execute_ai_summary(
 {truncated_raw}
 
 ---
-[⭐ 가장 중요한 필수 규칙: 녹음 진행 순서(시간 흐름) 엄수]
+[⭐ 가장 중요한 필수 규칙: 녹음 진행 순서(시간 흐름) 엄수 및 일정 추출]
 1. **회의록 요약 내용의 순서는 반드시 실제 녹음이 진행된 시간 순서(타임라인 순서)와 100% 일치해야 합니다.**
 2. 시간 순서를 절대 임의로 재배치하거나 뒤섞지 마세요. 회의 시작 시점 ➔ 전개/중반부 ➔ 후반/마무리 시점의 흐름을 그대로 따라가야 합니다.
 3. '주요 논의 사항'에서는 각 안건/주제 블록마다 해당 발언이 나온 **타임코드 구간(예: [00:00 ~ 05:20], [05:21 ~ 13:40])**을 제목 앞에 반드시 기재하여, 회의 음성/영상과 1:1로 정확히 동기화되도록 작성하세요.
-3. '주요 논의 사항'은 절대 줄글로 뭉뚱그리지 말고, 녹음에서 실제로 발언된 **타임코드 순서(초반 -> 중반 -> 후반)**대로 안건 블록을 나누어 작성하세요.
 4. '핵심 요약' 역시 회의 전반부 ➔ 중반부 ➔ 후반부의 진행 흐름 순서대로 3줄로 작성하세요.
-5. 대화 중 언급된 마감 일정, 후속 미팅, 릴리즈/작업 완료 예정일 등 일정이 있다면 회의 날짜(기준일: {meeting_date})를 고려하여 기한을 가능한 'YYYY-MM-DD' 형식으로 구체적으로 명시해주세요 (예: '다음 주 수요일' ➔ 기준일로부터 계산된 YYYY-MM-DD).
+5. **[🔥 일정 자동 등록 핵심 지침 - 누락 금지!]**
+   - 대화 중 언급된 마감 일정, 후속 미팅(다음 회의), 릴리즈/배포, 보고서 제출, 중간 점검, 정산/결제 등 **'날짜나 기한이 있는 모든 일정 및 할 일'은 빠짐없이 아래 '🚀 액션 아이템 및 일정' 섹션에 기재해야 합니다.**
+   - 기한은 회의 날짜(기준일: {meeting_date})를 고려하여 반드시 **'YYYY-MM-DD' 형식의 명확한 날짜**로 계산하여 작성해주세요.
+     - 예: '다음 주 수요일까지 초안 작성' ➔ (기한: YYYY-MM-DD)
+     - 예: '10월 15일에 후속 회의 진행' ➔ - [ ] [전체] 차기 컴짱 회의 (기한: 2026-10-15)
+     - 예: '내일까지 수정본 전달' ➔ (기한: YYYY-MM-DD)
+   - 기한이 있는 항목은 스튜디오 캘린더의 **'💻 컴짱' 캘린더에 자동으로 실시간 등록**되므로 날짜를 정확한 YYYY-MM-DD로 기재하는 것이 매우 중요합니다.
 
 [작성 지침 및 필수 마크다운 출력 형식]
 반드시 아래의 마크다운 형식으로 작성해주세요:
@@ -631,8 +654,8 @@ async def execute_ai_summary(
 ## ✅ 최종 결정 사항
 - (회의 전체를 통해 최종적으로 합의되거나 확정된 정책, 방향, 규칙 등)
 
-## 🚀 액션 아이템 (Action Items)
-- [ ] [담당자] 구체적인 할 일 내용 (기한: YYYY-MM-DD 또는 미정)
+## 🚀 액션 아이템 및 일정 (Action Items & Schedules)
+- [ ] [담당자] 구체적인 할 일 또는 일정 내용 (기한: YYYY-MM-DD)
 
 ## 🏷️ 태그
 #키워드1, #키워드2, #키워드3
@@ -720,6 +743,11 @@ async def execute_ai_summary(
         if due_m:
             due_date = due_m.group(1).strip()
             act_text = act_text.replace(due_m.group(0), "").strip()
+        else:
+            # 기한 괄호가 없을 경우 텍스트 내에서 스마트 날짜 추출 시도
+            extracted_date = parse_korean_due_date(act_text, meeting_date)
+            if extracted_date:
+                due_date = extracted_date
 
         action_items.append({
             "id": f"act_{uuid.uuid4().hex[:8]}",
@@ -732,11 +760,93 @@ async def execute_ai_summary(
     return summary_text, final_title, action_items, tags
 
 
-def sync_action_items_to_schedule(meeting_id: str, action_items: list, meeting_title: str) -> int:
-    """회의 액션 아이템 중 날짜가 있는 항목을 '💻 컴짱 회의' 캘린더에 자동 등록"""
+def parse_korean_due_date(due_str: str, base_date_str: str = "") -> Optional[str]:
+    """다양한 한국어/숫자 날짜 형식을 YYYY-MM-DD 형식으로 스마트 변환"""
+    if not due_str:
+        return None
+    due_str = due_str.strip()
+
+    # 기준일 파싱 (없으면 오늘)
+    try:
+        if base_date_str:
+            base_dt = datetime.strptime(base_date_str[:10], "%Y-%m-%d")
+        else:
+            base_dt = datetime.now()
+    except Exception:
+        base_dt = datetime.now()
+
+    # 1. YYYY-MM-DD 또는 YYYY.MM.DD 또는 YYYY/MM/DD
+    m1 = re.search(r"(\d{4})[-./\s]+(\d{1,2})[-./\s]+(\d{1,2})", due_str)
+    if m1:
+        y, m, d = int(m1.group(1)), int(m1.group(2)), int(m1.group(3))
+        try:
+            return f"{y:04d}-{m:02d}-{d:02d}"
+        except Exception:
+            pass
+
+    # 2. YYYY년 M월 D일
+    m2 = re.search(r"(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일", due_str)
+    if m2:
+        y, m, d = int(m2.group(1)), int(m2.group(2)), int(m2.group(3))
+        return f"{y:04d}-{m:02d}-{d:02d}"
+
+    # 3. M월 D일 (연도 생략 시 기준일 연도 사용)
+    m3 = re.search(r"(\d{1,2})월\s*(\d{1,2})일", due_str)
+    if m3:
+        m, d = int(m3.group(1)), int(m3.group(2))
+        y = base_dt.year
+        if base_dt.month == 12 and m == 1:
+            y += 1
+        return f"{y:04d}-{m:02d}-{d:02d}"
+
+    # 4. MM/DD
+    m4 = re.search(r"(?<!\d)(\d{1,2})/(\d{1,2})(?!\d)", due_str)
+    if m4:
+        m, d = int(m4.group(1)), int(m4.group(2))
+        if 1 <= m <= 12 and 1 <= d <= 31:
+            y = base_dt.year
+            return f"{y:04d}-{m:02d}-{d:02d}"
+
+    # 5. 상대 날짜: 오늘, 내일, 모레, 글피
+    if "오늘" in due_str:
+        return base_dt.strftime("%Y-%m-%d")
+    if "내일" in due_str:
+        return (base_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+    if "모레" in due_str:
+        return (base_dt + timedelta(days=2)).strftime("%Y-%m-%d")
+
+    # 6. 다음주 / 이번주 요일
+    weekdays_map = {"월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
+    for day_name, day_idx in weekdays_map.items():
+        if f"{day_name}요일" in due_str or (f"{day_name}" in due_str and ("이번주" in due_str or "다음주" in due_str)):
+            current_weekday = base_dt.weekday()
+            days_ahead = day_idx - current_weekday
+            if "다음주" in due_str or "차주" in due_str:
+                days_ahead += 7
+            elif days_ahead < 0:
+                days_ahead += 7
+            target_dt = base_dt + timedelta(days=days_ahead)
+            return target_dt.strftime("%Y-%m-%d")
+
+    return None
+
+
+def sync_action_items_to_schedule(meeting_id: str, action_items: list, meeting_title: str, meeting_date: str = "") -> int:
+    """회의 액션 아이템 중 날짜/기한이 있는 항목을 '💻 컴짱' 캘린더에 자동 등록"""
     from models.database import SessionLocal
     from models.schedule_model import ScheduleEvent
     from routers.schedule import get_calendar_service, get_or_create_comjjang_calendar
+
+    # 회의 날짜가 전달되지 않은 경우 DB에서 조회
+    if not meeting_date:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            row = conn.execute("SELECT meeting_date FROM meetings WHERE id = ?", (meeting_id,)).fetchone()
+            conn.close()
+            if row and row[0]:
+                meeting_date = row[0]
+        except Exception:
+            pass
 
     db = SessionLocal()
     added_count = 0
@@ -744,45 +854,72 @@ def sync_action_items_to_schedule(meeting_id: str, action_items: list, meeting_t
         service = get_calendar_service()
         comjjang_cal_id = get_or_create_comjjang_calendar(service) if service else "comjjang"
 
+        # 구글 캘린더 기존 이벤트 사전 조회 (중복 등록 방지 캐시)
+        existing_google_events = {}
+        if service and comjjang_cal_id and comjjang_cal_id != "comjjang":
+            try:
+                g_list = service.events().list(calendarId=comjjang_cal_id, maxResults=250).execute()
+                for g_item in g_list.get("items", []):
+                    g_sum = (g_item.get("summary") or "").strip()
+                    g_start = (g_item.get("start") or {}).get("date") or (g_item.get("start") or {}).get("dateTime", "")[:10]
+                    if g_sum and g_start:
+                        existing_google_events[(g_sum, g_start)] = g_item.get("id")
+            except Exception as e:
+                print(f"[Meeting -> Schedule] 구글 캘린더 기존 이벤트 목록 조회 스킵: {e}")
+
         for item in action_items:
             task = item.get("task", "").strip()
-            due_date = item.get("due_date", "").strip()
+            raw_due = item.get("due_date", "").strip()
             assignee = item.get("assignee", "").strip()
-            if not task or not due_date:
+            if not task:
                 continue
 
-            # 날짜 정규식 검사 (YYYY-MM-DD 형태 추출)
-            date_match = re.search(r"(\d{4}-\d{2}-\d{2})", due_date)
-            if not date_match:
-                continue
-            date_str = date_match.group(1)
+            # 스마트 날짜 파싱 (due_date 또는 task 내 날짜 탐색)
+            date_str = parse_korean_due_date(raw_due, meeting_date)
+            if not date_str:
+                date_str = parse_korean_due_date(task, meeting_date)
 
-            # 이미 같은 회의 및 태스크로 등록된 일정이 있는지 체크
-            search_key = task[:15] if len(task) >= 15 else task
-            existing = db.query(ScheduleEvent).filter(
-                ScheduleEvent.meeting_id == meeting_id,
-                ScheduleEvent.title.contains(search_key)
-            ).first()
-            if existing:
+            if not date_str:
                 continue
 
             cal_title = f"[컴짱] {task}"
-            cal_desc = f"📌 회의: {meeting_title}\n👤 담당자: {assignee or '미지정'}\n🎯 할 일: {task}\n(컴짱 회의록에서 자동 생성된 일정)"
+            cal_desc = f"📌 회의: {meeting_title}\n👤 담당자: {assignee or '미지정'}\n🎯 할 일/일정: {task}\n(컴짱 회의록에서 자동 생성된 일정)"
 
-            google_event_id = None
-            if service and comjjang_cal_id and comjjang_cal_id != "comjjang":
+            # 1. 이미 같은 회의 및 태스크 또는 같은 제목+날짜로 등록된 일정이 로컬 DB에 있는지 체크
+            search_key = task[:15] if len(task) >= 15 else task
+            existing_db = db.query(ScheduleEvent).filter(
+                (ScheduleEvent.meeting_id == meeting_id) & (ScheduleEvent.title.contains(search_key))
+            ).first()
+            if not existing_db:
+                existing_db = db.query(ScheduleEvent).filter(
+                    (ScheduleEvent.title == cal_title) & (ScheduleEvent.start_time.startswith(date_str))
+                ).first()
+
+            # 2. 구글 캘린더에 이미 동일한 요약+날짜가 있는지 확인
+            google_event_id = existing_google_events.get((cal_title, date_str))
+            
+            # 구글 캘린더에 없으면 신규 생성
+            if not google_event_id and service and comjjang_cal_id and comjjang_cal_id != "comjjang":
                 try:
                     g_body = {
                         "summary": cal_title,
                         "description": cal_desc,
-                        "colorId": "7",  # 공작 / 스카이블루
+                        "colorId": "7",  # 공작 / 스카이블루 (컴짱 대표 색상)
                         "start": {"date": date_str},
                         "end": {"date": date_str},
                     }
                     created_g = service.events().insert(calendarId=comjjang_cal_id, body=g_body).execute()
                     google_event_id = created_g.get("id")
+                    existing_google_events[(cal_title, date_str)] = google_event_id
                 except Exception as e:
                     print(f"[Meeting -> Schedule] 구글 컴짱 캘린더 등록 실패: {e}")
+
+            if existing_db:
+                # 이미 DB에 있으면 google_event_id만 보강하고 스킵
+                if google_event_id and not existing_db.google_event_id:
+                    existing_db.google_event_id = google_event_id
+                    existing_db.source = "google"
+                continue
 
             new_event = ScheduleEvent(
                 google_event_id=google_event_id,
@@ -939,7 +1076,7 @@ async def execute_meeting_pipeline(
     # 4. 액션 아이템 중 기한이 있는 항목을 '컴짱 캘린더'에 자동 등록
     synced_schedules = 0
     try:
-        synced_schedules = sync_action_items_to_schedule(meeting_id, action_items, final_title)
+        synced_schedules = sync_action_items_to_schedule(meeting_id, action_items, final_title, meeting_date)
         print(f"[Meeting] 회의 '{final_title}'에서 {synced_schedules}개 일정 자동 등록 완료")
     except Exception as e:
         print(f"[Meeting Pipeline] 일정 동기화 오류: {e}")
@@ -981,6 +1118,8 @@ async def process_meeting_stream(req: ProcessMeetingRequest):
                     whisper_size=req.whisper_size or "base",
                     event_callback=callback,
                 )
+                synced_scheds = res.get('synced_schedules', 0)
+                sched_msg = f" ({synced_scheds}개 일정이 '💻 컴짱' 캘린더에 자동 등록되었습니다)" if synced_scheds > 0 else ""
                 await queue.put({
                     'type': 'done',
                     'meeting_id': res['meeting_id'],
@@ -989,7 +1128,8 @@ async def process_meeting_stream(req: ProcessMeetingRequest):
                     'start_time': res['start_time'],
                     'duration_sec': res['duration_sec'],
                     'action_item_count': res['action_item_count'],
-                    'message': '🎉 컴짱회의 AI 회의록 분석 및 저장이 완료되었습니다!'
+                    'synced_schedules': synced_scheds,
+                    'message': f'🎉 컴짱 AI 회의록 분석 및 저장이 완료되었습니다!{sched_msg}'
                 })
             except Exception as e:
                 await queue.put({

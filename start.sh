@@ -4,6 +4,9 @@
 echo "🚀 Bill Studio 서버를 시작합니다..."
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# 환경 변수 (Homebrew Node v22 등 우선 적용)
+export PATH="/opt/homebrew/bin:$PATH"
+
 # 1. 백엔드 실행 (FastAPI - 포트 8000)
 echo "📦 백엔드(FastAPI) 시작 중..."
 cd "$DIR/backend"

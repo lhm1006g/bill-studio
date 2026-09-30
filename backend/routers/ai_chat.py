@@ -342,16 +342,45 @@ async def chat_stream(session_id: str, body: ChatRequest):
 
                         elif event == "result":
                             res_data = data.get("result", {})
-                            # 만약 누적된 delta가 없고 result에 response가 있다면 보충
+                            # 1) 정상 응답이 있는 경우
                             if not full_ai_response and res_data.get("response"):
                                 final_resp = res_data.get("response", "")
                                 full_ai_response = final_resp
                                 yield f"data: {json.dumps({'type': 'token', 'text': final_resp})}\n\n"
+                            # 2) 오류가 발생한 경우 (예: 할당량 소진)
+                            elif not full_ai_response and res_data.get("error"):
+                                err_text = res_data.get("error", "")
+                                if "quota" in err_text.lower() or "limit" in err_text.lower():
+                                    err_msg = (
+                                        "⚠️ **AI 모델 할당량(Quota) 초과 안내**\n\n"
+                                        "기존 계정의 일일 무료 사용 한도가 소진되었습니다.\n\n"
+                                        "👉 **새로 구독하신 Google 계정(`travelpackage.deva@gmail.com`)으로 로그인**하시려면:\n"
+                                        "1. 터미널에서 `agy`를 실행하여 새 계정으로 로그인하거나,\n"
+                                        "2. IDE 우측 상단/계정 설정에서 새 구독 계정으로 전환해주세요.\n\n"
+                                        f"*(상세: {err_text})*"
+                                    )
+                                else:
+                                    err_msg = f"⚠️ 오류가 발생했습니다: {err_text}"
+                                full_ai_response = err_msg
+                                yield f"data: {json.dumps({'type': 'token', 'text': err_msg})}\n\n"
 
                     except json.JSONDecodeError:
                         continue
 
                 await proc.wait()
+
+                # 전체 응답이 여전히 비어있는 경우
+                if not full_ai_response:
+                    stderr_bytes = await proc.stderr.read()
+                    stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
+                    err_msg = (
+                        "⚠️ **답변을 불러오지 못했습니다.**\n\n"
+                        "AI 모델 호출 중 오류가 발생했거나 할당량이 초과되었을 수 있습니다."
+                    )
+                    if stderr_text:
+                        err_msg += f"\n\n*(로그: {stderr_text})*"
+                    full_ai_response = err_msg
+                    yield f"data: {json.dumps({'type': 'token', 'text': err_msg})}\n\n"
 
             except Exception as e:
                 err_msg = f"\n[오류] agy CLI 실행 실패: {str(e)}"

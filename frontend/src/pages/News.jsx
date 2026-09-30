@@ -107,6 +107,17 @@ export default function News() {
   const answerAudioRef = useRef(null)
   const qaChatEndRef = useRef(null)
 
+  // 🎧 전체 뉴스 연속 낭독 플레이어 상태
+  const [readerActive, setReaderActive] = useState(false)
+  const [readerPlaying, setReaderPlaying] = useState(false)
+  const [readerIndex, setReaderIndex] = useState(0)
+  const [readerRate, setReaderRate] = useState(1.25)
+  const [readerVoice, setReaderVoice] = useState('ko-KR-InJoonNeural')
+  const [readerLoading, setReaderLoading] = useState(false)
+  const [readerCurrentTime, setReaderCurrentTime] = useState(0)
+  const [readerDuration, setReaderDuration] = useState(0)
+  const readerAudioRef = useRef(null)
+
   // ─── 초기 데이터 로딩 ────────────────────────────────────────
   useEffect(() => {
     loadSources()
@@ -553,6 +564,172 @@ export default function News() {
       answerAudioRef.current.pause()
     }
     setQaMessages([])
+  }
+
+  // ─── 🎧 전체 뉴스 연속 낭독 플레이어 제어 로직 ──────────────────────
+  const startContinuousReading = (startIndex = 0) => {
+    if (!articles || articles.length === 0) {
+      showToast('재생할 기사가 없습니다.', 'warning')
+      return
+    }
+    if (isPlayingPodcast && audioRef.current) {
+      audioRef.current.pause()
+      setIsPlayingPodcast(false)
+    }
+    const idx = Math.max(0, Math.min(startIndex, articles.length - 1))
+    setReaderActive(true)
+    playArticleAtIndex(idx)
+  }
+
+  const playArticleAtIndex = (idx) => {
+    if (idx < 0 || idx >= articles.length) {
+      setReaderPlaying(false)
+      showToast('모든 기사 낭독이 끝났습니다 🎉', 'success')
+      return
+    }
+    const target = articles[idx]
+    setReaderIndex(idx)
+    setReaderLoading(true)
+    setReaderCurrentTime(0)
+    setReaderDuration(0)
+
+    if (!target.is_read) {
+      fetch(`${API}/articles/${target.id}/read`, { method: 'PATCH' }).catch(() => {})
+      setArticles(prev => prev.map((a, i) => i === idx ? { ...a, is_read: 1 } : a))
+      setCounts(prev => ({ ...prev, unread: Math.max(0, prev.unread - 1) }))
+    }
+
+    const audioUrl = `${API}/articles/${target.id}/audio?voice=${readerVoice}`
+    if (readerAudioRef.current) {
+      readerAudioRef.current.src = audioUrl
+      readerAudioRef.current.playbackRate = readerRate
+      readerAudioRef.current.play()
+        .then(() => {
+          setReaderPlaying(true)
+          setReaderLoading(false)
+        })
+        .catch(err => {
+          console.warn('재생 지연 또는 음성 준비 중:', err)
+          setReaderLoading(false)
+        })
+    }
+  }
+
+  const handleReaderEnded = () => {
+    if (readerIndex + 1 < articles.length) {
+      playArticleAtIndex(readerIndex + 1)
+    } else {
+      setReaderPlaying(false)
+      showToast('모든 기사 낭독이 완료되었습니다 👏', 'success')
+    }
+  }
+
+  const handleReaderNext = () => {
+    if (readerIndex + 1 < articles.length) {
+      playArticleAtIndex(readerIndex + 1)
+    } else {
+      showToast('마지막 기사입니다.', 'info')
+    }
+  }
+
+  const handleReaderPrev = () => {
+    if (readerIndex > 0) {
+      playArticleAtIndex(readerIndex - 1)
+    } else {
+      showToast('첫 번째 기사입니다.', 'info')
+    }
+  }
+
+  const handleReaderTogglePlay = () => {
+    if (!readerAudioRef.current) return
+    if (readerPlaying) {
+      readerAudioRef.current.pause()
+      setReaderPlaying(false)
+    } else {
+      readerAudioRef.current.play()
+        .then(() => setReaderPlaying(true))
+        .catch(err => console.error('재생 오류:', err))
+    }
+  }
+
+  const handleReaderRateChange = () => {
+    const rates = [1.0, 1.25, 1.5, 2.0]
+    const next = rates[(rates.indexOf(readerRate) + 1) % rates.length]
+    setReaderRate(next)
+    if (readerAudioRef.current) {
+      readerAudioRef.current.playbackRate = next
+    }
+  }
+
+  const handleReaderVoiceToggle = () => {
+    const nextVoice = readerVoice === 'ko-KR-InJoonNeural' ? 'ko-KR-SunHiNeural' : 'ko-KR-InJoonNeural'
+    setReaderVoice(nextVoice)
+    if (readerActive && articles[readerIndex]) {
+      setTimeout(() => {
+        const audioUrl = `${API}/articles/${articles[readerIndex].id}/audio?voice=${nextVoice}`
+        if (readerAudioRef.current) {
+          readerAudioRef.current.src = audioUrl
+          readerAudioRef.current.playbackRate = readerRate
+          readerAudioRef.current.play().catch(() => {})
+        }
+      }, 50)
+    }
+  }
+
+  const handleReaderClose = () => {
+    if (readerAudioRef.current) {
+      readerAudioRef.current.pause()
+    }
+    setReaderPlaying(false)
+    setReaderActive(false)
+  }
+
+  const handleReaderDeleteCurrent = async () => {
+    if (!articles[readerIndex]) return
+    const target = articles[readerIndex]
+    try {
+      await fetch(`${API}/articles/${target.id}`, { method: 'DELETE' })
+      showToast('기사를 삭제하고 다음 기사로 넘어갑니다 🗑️', 'info')
+      const newArticles = articles.filter(a => a.id !== target.id)
+      setArticles(newArticles)
+      loadCounts()
+
+      if (newArticles.length === 0) {
+        handleReaderClose()
+        return
+      }
+
+      const nextIdx = Math.min(readerIndex, newArticles.length - 1)
+      setReaderIndex(nextIdx)
+      setTimeout(() => {
+        const nextArt = newArticles[nextIdx]
+        if (readerAudioRef.current && nextArt) {
+          readerAudioRef.current.src = `${API}/articles/${nextArt.id}/audio?voice=${readerVoice}`
+          readerAudioRef.current.playbackRate = readerRate
+          readerAudioRef.current.play().catch(() => {})
+        }
+      }, 100)
+    } catch (err) {
+      showToast('삭제 실패: ' + err.message, 'error')
+    }
+  }
+
+  const handleDeleteArticle = async (articleId, e) => {
+    if (e) e.stopPropagation()
+    if (!window.confirm('이 기사를 삭제하시겠습니까?')) return
+    try {
+      const res = await fetch(`${API}/articles/${articleId}`, { method: 'DELETE' })
+      if (res.ok) {
+        setArticles(prev => prev.filter(a => a.id !== articleId))
+        if (selectedArticle?.id === articleId) {
+          setSelectedArticle(null)
+        }
+        loadCounts()
+        showToast('기사가 삭제되었습니다 🗑️', 'info')
+      }
+    } catch (err) {
+      showToast('기사 삭제 실패: ' + err.message, 'error')
+    }
   }
 
   // 검색 디바운스
@@ -1030,6 +1207,15 @@ export default function News() {
           {counts.unread > 0 && !showBookmarked && !selectedStock && (
             <span className="news-unread-badge">미읽음 {counts.unread}</span>
           )}
+          <button
+            type="button"
+            className={`news-continuous-play-btn ${readerActive && readerPlaying ? 'playing' : ''}`}
+            onClick={() => readerActive ? handleReaderTogglePlay() : startContinuousReading(0)}
+            title="현재 목록의 기사들을 AI 목소리로 차례대로 연속 낭독합니다"
+          >
+            <span className="play-icon">{readerActive && readerPlaying ? '⏸️' : '🎧'}</span>
+            {readerActive && readerPlaying ? '낭독 일시정지' : `전체 연속 듣기 (${articles.length}건)`}
+          </button>
           <input
             className="news-search-input"
             type="text"
@@ -1099,6 +1285,14 @@ export default function News() {
             <div className="date-action-right">
               <button
                 type="button"
+                className={`date-continuous-btn ${readerActive && readerPlaying ? 'playing' : ''}`}
+                onClick={() => readerActive ? handleReaderTogglePlay() : startContinuousReading(0)}
+                title="이 날짜 기사들을 처음부터 차례대로 연속 낭독"
+              >
+                {readerActive && readerPlaying ? '⏸️ 낭독 일시정지' : '🎧 연속 듣기'}
+              </button>
+              <button
+                type="button"
                 className="date-podcast-btn"
                 onClick={() => handleOpenPodcast(selectedDate)}
                 title="일하면서 귀로 듣는 AI 라디오 팟캐스트 (7~10분 심층 / 3분 요약)"
@@ -1147,14 +1341,28 @@ export default function News() {
               )}
             </div>
           ) : (
-            articles.map(article => (
+            articles.map((article, idx) => (
               <div
                 key={article.id}
-                className={`news-article-card ${!article.is_read ? 'unread' : ''} ${selectedArticle?.id === article.id ? 'selected' : ''}`}
+                className={`news-article-card ${!article.is_read ? 'unread' : ''} ${selectedArticle?.id === article.id ? 'selected' : ''} ${readerActive && readerIndex === idx ? 'is-speaking-now' : ''}`}
                 onClick={() => handleSelectArticle(article)}
               >
                 {/* 호버 시 빠른 액션 버튼 */}
                 <div className="article-quick-actions">
+                  <button
+                    className={`article-speak-btn ${readerActive && readerIndex === idx && readerPlaying ? 'speaking' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (readerActive && readerIndex === idx) {
+                        handleReaderTogglePlay()
+                      } else {
+                        startContinuousReading(idx)
+                      }
+                    }}
+                    title={readerActive && readerIndex === idx && readerPlaying ? "일시정지" : "이 기사부터 연속 듣기"}
+                  >
+                    {readerActive && readerIndex === idx && readerPlaying ? '⏸️ 듣는중' : '🔊 듣기'}
+                  </button>
                   <button
                     className={`article-read-btn ${article.is_read ? 'is-read' : ''}`}
                     onClick={(e) => handleMarkRead(article, e)}
@@ -1168,6 +1376,13 @@ export default function News() {
                     title={article.is_bookmarked ? '북마크 해제' : '북마크'}
                   >
                     {article.is_bookmarked ? '⭐' : '☆'}
+                  </button>
+                  <button
+                    className="article-del-btn"
+                    onClick={(e) => handleDeleteArticle(article.id, e)}
+                    title="기사 삭제"
+                  >
+                    🗑️
                   </button>
                 </div>
                 <div className="news-article-meta">
@@ -2023,6 +2238,145 @@ export default function News() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 🎧 전체 뉴스 연속 낭독 플로팅 플레이어 바 */}
+      {readerActive && articles[readerIndex] && (
+        <div className="news-floating-reader">
+          {/* 상단 프로그레스 바 */}
+          <div className="reader-progress-track">
+            <div
+              className="reader-progress-bar"
+              style={{
+                width: `${readerDuration > 0 ? (readerCurrentTime / readerDuration) * 100 : 0}%`,
+              }}
+            />
+          </div>
+
+          <div className="reader-body">
+            {/* 좌측: 기사 정보 */}
+            <div className="reader-info">
+              <div className="reader-meta">
+                <span className="reader-badge">
+                  {readerLoading ? '⏳ 음성 준비 중...' : `🔊 [${readerIndex + 1} / ${articles.length}] 연속 낭독`}
+                </span>
+                <span className="reader-source">
+                  {articles[readerIndex].source_icon} {articles[readerIndex].source_name}
+                </span>
+              </div>
+              <div
+                className="reader-title"
+                title={articles[readerIndex].title}
+                onClick={() => handleSelectArticle(articles[readerIndex])}
+              >
+                {articles[readerIndex].title}
+              </div>
+            </div>
+
+            {/* 중앙: 재생 컨트롤 */}
+            <div className="reader-controls">
+              <button
+                type="button"
+                className="reader-btn prev"
+                onClick={handleReaderPrev}
+                disabled={readerIndex <= 0}
+                title="이전 기사"
+              >
+                ⏮
+              </button>
+
+              <button
+                type="button"
+                className="reader-btn play-pause"
+                onClick={handleReaderTogglePlay}
+                title={readerPlaying ? "일시정지" : "재생"}
+              >
+                {readerLoading ? '⏳' : readerPlaying ? '⏸' : '▶'}
+              </button>
+
+              <button
+                type="button"
+                className="reader-btn next"
+                onClick={handleReaderNext}
+                disabled={readerIndex >= articles.length - 1}
+                title="다음 기사"
+              >
+                ⏭
+              </button>
+            </div>
+
+            {/* 우측: 배속, 성우, 액션, 닫기 */}
+            <div className="reader-actions">
+              {/* 배속 */}
+              <button
+                type="button"
+                className="reader-pill-btn"
+                onClick={handleReaderRateChange}
+                title="낭독 속도 변경"
+              >
+                ⚡ {readerRate}x
+              </button>
+
+              {/* 성우 선택 */}
+              <button
+                type="button"
+                className="reader-pill-btn voice"
+                onClick={handleReaderVoiceToggle}
+                title="성우 변경 (인준 / 선희)"
+              >
+                {readerVoice.includes('InJoon') ? '🎙️ 인준' : '🌸 선희'}
+              </button>
+
+              {/* 북마크 */}
+              <button
+                type="button"
+                className={`reader-icon-btn ${articles[readerIndex].is_bookmarked ? 'bookmarked' : ''}`}
+                onClick={(e) => handleBookmark(articles[readerIndex], e)}
+                title={articles[readerIndex].is_bookmarked ? "북마크 해제" : "기사 북마크"}
+              >
+                {articles[readerIndex].is_bookmarked ? '⭐' : '☆'}
+              </button>
+
+              {/* 삭제 후 다음으로 */}
+              <button
+                type="button"
+                className="reader-icon-btn delete"
+                onClick={handleReaderDeleteCurrent}
+                title="기사 삭제 후 다음 기사로 넘어가기"
+              >
+                🗑️
+              </button>
+
+              {/* 닫기 */}
+              <button
+                type="button"
+                className="reader-icon-btn close"
+                onClick={handleReaderClose}
+                title="낭독 종료"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          {/* 숨겨진 오디오 태그 */}
+          <audio
+            ref={readerAudioRef}
+            style={{ display: 'none' }}
+            onTimeUpdate={(e) => setReaderCurrentTime(e.target.currentTime)}
+            onLoadedMetadata={(e) => {
+              setReaderDuration(e.target.duration || 0)
+              if (readerAudioRef.current) {
+                readerAudioRef.current.playbackRate = readerRate
+              }
+            }}
+            onEnded={handleReaderEnded}
+            onError={(e) => {
+              console.warn('낭독 오디오 로드 에러:', e)
+              setReaderLoading(false)
+            }}
+          />
         </div>
       )}
 

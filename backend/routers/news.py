@@ -10,6 +10,7 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
+import re
 
 import feedparser
 import httpx
@@ -26,6 +27,8 @@ DB_PATH = Path(__file__).resolve().parent.parent / "studio.db"
 AGY_BIN = "/Users/bill/.local/bin/agy"
 PODCAST_DIR = Path(__file__).resolve().parent.parent.parent / "downloads" / "news_podcasts"
 PODCAST_DIR.mkdir(parents=True, exist_ok=True)
+ARTICLE_AUDIO_DIR = PODCAST_DIR / "articles"
+ARTICLE_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 # ─── 기본 뉴스 소스 ────────────────────────────────────────────────────
 DEFAULT_SOURCES = [
@@ -1375,6 +1378,75 @@ def toggle_bookmark(article_id: str):
     row = conn.execute("SELECT is_bookmarked FROM news_articles WHERE id = ?", (article_id,)).fetchone()
     conn.close()
     return {"is_bookmarked": row[0] if row else 0}
+
+
+@router.delete("/articles/{article_id}")
+def delete_single_article(article_id: str):
+    """기사 단건 삭제"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("DELETE FROM news_articles WHERE id = ?", (article_id,))
+    conn.commit()
+    conn.close()
+
+    # 캐시된 오디오가 있다면 정리
+    for audio_f in ARTICLE_AUDIO_DIR.glob(f"{article_id}_*.mp3"):
+        try:
+            audio_f.unlink()
+        except Exception:
+            pass
+
+    return {"ok": True, "message": "기사가 삭제되었습니다."}
+
+
+@router.get("/articles/{article_id}/audio")
+async def get_article_audio(article_id: str, voice: str = "ko-KR-InJoonNeural"):
+    """기사 제목과 요약을 Edge-TTS로 음성 합성하여 MP3 스트리밍/반환"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM news_articles WHERE id = ?", (article_id,)).fetchone()
+    conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="기사를 찾을 수 없습니다.")
+
+    article = dict(row)
+    voice_slug = "injoon" if "InJoon" in voice else "sunhi"
+    audio_path = ARTICLE_AUDIO_DIR / f"{article_id}_{voice_slug}.mp3"
+
+    if audio_path.exists() and audio_path.stat().st_size > 1000:
+        return FileResponse(
+            str(audio_path),
+            media_type="audio/mpeg",
+            headers={"Accept-Ranges": "bytes"}
+        )
+
+    # 읽을 텍스트 구성 (출처 + 제목 + 요약)
+    source = article.get("source") or "주요 뉴스"
+    title = article.get("title", "")
+    summary = article.get("ai_summary") or article.get("summary") or ""
+
+    # HTML 태그 및 특수문자 제거
+    summary_clean = re.sub(r"<[^>]+>", " ", summary)
+    summary_clean = re.sub(r"[\r\n\t]+", " ", summary_clean).strip()
+    
+    # 너무 길면 300자로 간결하게 낭독
+    if len(summary_clean) > 300:
+        summary_clean = summary_clean[:300] + "..."
+
+    speak_text = f"{source}. {title}. {summary_clean}"
+    speak_text = clean_script_for_tts(speak_text)
+
+    try:
+        communicate = edge_tts.Communicate(speak_text, voice, rate="+5%")
+        await communicate.save(str(audio_path))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TTS 음성 합성 실패: {str(e)}")
+
+    return FileResponse(
+        str(audio_path),
+        media_type="audio/mpeg",
+        headers={"Accept-Ranges": "bytes"}
+    )
 
 
 @router.delete("/articles/clear")

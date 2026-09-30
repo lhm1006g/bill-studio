@@ -528,6 +528,9 @@ function Meetings() {
               if (data.type === 'done' && data.meeting_id) {
                 // 완료 시 자동으로 상세 모달 열기
                 handleOpenDetail(data.meeting_id)
+                if (data.synced_schedules > 0) {
+                  alert(`🎉 AI 회의록 분석 완료!\n${data.synced_schedules}개 일정이 '💻 컴짱' 캘린더에 자동 등록되었습니다.`)
+                }
               }
             } catch (err) {
               // JSON 파싱 에러 무시
@@ -1715,7 +1718,7 @@ function Meetings() {
                 <div className="action-items-checklist">
                   <div className="action-items-header-bar">
                     <span className="action-header-info">
-                      💡 날짜(기한)가 있는 할 일은 <b>'💻 컴짱 회의' 캘린더</b>에 자동 동기화됩니다.
+                      💡 날짜(기한)가 있는 할 일은 <b>'💻 컴짱' 캘린더</b>에 자동 등록됩니다.
                     </span>
                     <button
                       type="button"

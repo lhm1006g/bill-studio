@@ -5,7 +5,7 @@ const API_BASE = 'http://localhost:8000/api/schedule'
 
 // 스튜디오 특화 프리셋 템플릿
 const PRESETS = [
-  { label: '💻 컴짱 회의 업무', colorId: '7', color: '#039be5', defaultDesc: '컴짱 회의에서 도출된 마감 및 실행 업무', isRoutine: false, isComjjang: true },
+  { label: '💻 컴짱 업무', colorId: '7', color: '#039be5', defaultDesc: '컴짱에서 도출된 마감 및 실행 업무', isRoutine: false, isComjjang: true },
   { label: '🎬 영상 업로드', colorId: '11', color: '#ef4444', defaultDesc: '유튜브 채널에 최종 완성본 영상 업로드 및 공개', isRoutine: false, isComjjang: false },
   { label: '✂️ 영상 편집 마감', colorId: '3', color: '#a855f7', defaultDesc: '컷 편집 및 자막 싱크 완료', isRoutine: false, isComjjang: false },
   { label: '💡 콘텐츠 기획 & 대본', colorId: '2', color: '#10b981', defaultDesc: '새 영상 주제 선정 및 스크립트 작성', isRoutine: false, isComjjang: false },
@@ -46,7 +46,7 @@ function Schedule() {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [viewMode, setViewMode] = useState('month') // 'month' | 'agenda'
   
-  // 👁️ 캘린더 보기 모드 ('all': 전체 함께 보기 | 'mine': 내 스튜디오 일정만 | 'comjjang': 컴짱 회의 일정만)
+  // 👁️ 캘린더 보기 모드 ('all': 전체 함께 보기 | 'mine': 내 스튜디오 일정만 | 'comjjang': 컴짱 일정만)
   const [calendarFilter, setCalendarFilter] = useState('all')
 
   // 🚲 일상 루틴 필터 (기본값: 루틴 숨김! 주요 일정만 깔끔하게 보기)
@@ -150,13 +150,13 @@ function Schedule() {
     }
   }
 
-  // 4-1. 구글에 '💻 컴짱 회의' 캘린더 자동 생성
+  // 4-1. 구글에 '💻 컴짱' 캘린더 자동 생성
   const handleCreateComjjangCalendar = async () => {
     try {
       const res = await fetch(`${API_BASE}/calendars/create-comjjang`, { method: 'POST' })
       if (!res.ok) throw new Error('컴짱 캘린더 생성 실패')
       const data = await res.json()
-      showToast(data.message || '구글 계정에 "💻 컴짱 회의" 캘린더가 준비되었습니다!', 'success')
+      showToast(data.message || '구글 계정에 "💻 컴짱" 캘린더가 준비되었습니다!', 'success')
       fetchEvents()
     } catch (e) {
       showToast('오류: ' + e.message, 'error')
@@ -175,7 +175,19 @@ function Schedule() {
       const res = await fetch(`${API_BASE}/events?timeMin=${encodeURIComponent(start)}&timeMax=${encodeURIComponent(end)}`)
       if (!res.ok) throw new Error('일정 목록 불러오기 실패')
       const data = await res.json()
-      setEvents(data.events || [])
+      const rawEvents = data.events || []
+      const seenMap = new Map()
+      const deduped = []
+      for (const ev of rawEvents) {
+        const titleKey = (ev.title || '').trim()
+        const startKey = (ev.start || '').slice(0, ev.all_day ? 10 : 16)
+        const key = `${titleKey}__${startKey}`
+        if (!seenMap.has(key)) {
+          seenMap.set(key, true)
+          deduped.push(ev)
+        }
+      }
+      setEvents(deduped)
     } catch (e) {
       console.error(e)
     } finally {
@@ -198,7 +210,7 @@ function Schedule() {
     setCurrentDate(new Date())
   }
 
-  // 📅 날짜 상세 팝업 열기 (타이틀 위주 뷰 & 아코디언)
+  // 📅 날짜 상세 팝업 열기 (모든 일정 기본 펼침으로 가독성 극대화)
   const openDayDetailModal = (dateStr) => {
     setDayDetailDate(dateStr)
     const dayEvs = events.filter(ev => {
@@ -207,12 +219,8 @@ function Schedule() {
       const e = ev.end ? ev.end.slice(0, 10) : s
       return dateStr >= s && dateStr <= e
     })
-    // 일정이 1개일 때만 자동 펼침, 2개 이상일 때는 가독성을 위해 타이틀 위주로 접어둠
-    if (dayEvs.length === 1) {
-      setExpandedEventIds(new Set([dayEvs[0].id]))
-    } else {
-      setExpandedEventIds(new Set())
-    }
+    // 일일이 클릭하지 않아도 제목과 상세 내용(담당자, 할 일 등)을 즉시 읽을 수 있도록 기본 전체 펼침!
+    setExpandedEventIds(new Set(dayEvs.map(e => e.id)))
   }
 
   // 일정 펼침/접힘 토글
@@ -547,7 +555,7 @@ function Schedule() {
                   key={`${ev.id}_${cell.dateStr}`}
                   className={`event-pill ${isMultiDay ? 'multi-day' : ''} ${ev.is_routine ? 'routine-pill' : ''} ${ev.is_comjjang ? 'comjjang-pill' : ''}`}
                   style={{ borderLeftColor: color }}
-                  title={`${ev.is_comjjang ? '💻 [컴짱 회의 일정]\n' : ''}${ev.title}\n${ev.description || ''}`}
+                  title={`${ev.is_comjjang ? '💻 [컴짱 일정]\n' : ''}${ev.title}\n${ev.description || ''}`}
                   onClick={(e) => {
                     e.stopPropagation()
                     openDayDetailModal(cell.dateStr)
@@ -577,7 +585,7 @@ function Schedule() {
           <span className="empty-icon">📅</span>
           <p>
             {calendarFilter === 'comjjang'
-              ? '컴짱 회의 일정이 없습니다. 회의를 진행하고 일정을 동기화해보세요!'
+              ? '컴짱 일정이 없습니다. 회의를 진행하고 일정을 동기화해보세요!'
               : hideRoutines && routineEventsCount > 0
               ? `주요 일정이 없습니다. (일상 루틴 ${routineEventsCount}개가 숨겨져 있습니다)`
               : '등록된 일정이 없습니다. 새 일정을 추가해보세요!'}
@@ -618,7 +626,7 @@ function Schedule() {
                 <div className="agenda-title-row">
                   <h4 className="agenda-title">{isHoliday ? `🚩 ${ev.title}` : ev.title}</h4>
                   {isHoliday && <span className="holiday-badge-tag">🔴 법정 공휴일</span>}
-                  {ev.is_comjjang && <span className="comjjang-tag">💻 컴짱 회의</span>}
+                  {ev.is_comjjang && <span className="comjjang-tag">💻 컴짱</span>}
                   {ev.is_routine && <span className="routine-tag">🚲 루틴</span>}
                   <span className="agenda-badge" style={{ backgroundColor: `${color}20`, color: color }}>
                     {isHoliday ? '공휴일' : ev.all_day ? '종일' : '시간'}
@@ -730,7 +738,7 @@ function Schedule() {
           <button
             className={`cal-filter-tab ${calendarFilter === 'all' ? 'active' : ''}`}
             onClick={() => setCalendarFilter('all')}
-            title="스튜디오 일정과 컴짱 회의 일정을 모두 함께 봅니다"
+            title="스튜디오 일정과 컴짱 일정을 모두 함께 봅니다"
           >
             <span className="cal-tab-icon">🌟</span>
             <span className="cal-tab-title">전체 함께 보기</span>
@@ -740,7 +748,7 @@ function Schedule() {
           <button
             className={`cal-filter-tab mine ${calendarFilter === 'mine' ? 'active' : ''}`}
             onClick={() => setCalendarFilter('mine')}
-            title="컴짱 회의 일정을 제외한 내 스튜디오/개인 일정만 봅니다"
+            title="컴짱 일정을 제외한 내 스튜디오/개인 일정만 봅니다"
           >
             <span className="cal-tab-dot primary" />
             <span className="cal-tab-title">📌 내 일정만 보기</span>
@@ -750,10 +758,10 @@ function Schedule() {
           <button
             className={`cal-filter-tab comjjang ${calendarFilter === 'comjjang' ? 'active' : ''}`}
             onClick={() => setCalendarFilter('comjjang')}
-            title="컴짱 회의에서 도출된 업무 및 마감 일정만 집중적으로 봅니다"
+            title="컴짱에서 도출된 업무 및 마감 일정만 집중적으로 봅니다"
           >
             <span className="cal-tab-dot comjjang" />
-            <span className="cal-tab-title">💻 컴짱 회의만 보기</span>
+            <span className="cal-tab-title">💻 컴짱만 보기</span>
             <span className="cal-tab-count">{comjjangEventsCount}</span>
           </button>
         </div>
@@ -776,7 +784,7 @@ function Schedule() {
               <button
                 className="create-comjjang-cal-btn"
                 onClick={handleCreateComjjangCalendar}
-                title="구글 계정에 '💻 컴짱 회의' 전용 보조 캘린더를 생성/동기화합니다"
+                title="구글 계정에 '💻 컴짱' 전용 보조 캘린더를 생성/동기화합니다"
               >
                 + 구글 '💻 컴짱' 캘린더
               </button>
@@ -1006,51 +1014,93 @@ function Schedule() {
 
                 return (
                   <div className="day-flow-container">
-                    {/* ── 1. 하루 종일 & 기간 진행 중인 일정 랙 (All-day Rack) ── */}
-                    {/* ── 1. 하루 종일 & 기간 진행 중인 일정: 초슬림 알약 칩 바 (공간 최소화 & 가독성 극대화) ── */}
+                    {/* ── 1. 하루 종일 & 기간 진행 중인 일정 랙 (시원한 가독성 극대화 카드 뷰) ── */}
                     {allDayList.length > 0 && (
-                      <div className="day-allday-strip">
-                        <div className="allday-strip-header">
-                          <span className="strip-badge-icon">☀️</span>
-                          <span className="strip-label">종일 · 기간</span>
-                          <span className="strip-count">{allDayList.length}</span>
+                      <div className="day-allday-section">
+                        <div className="allday-section-header">
+                          <div className="allday-section-left">
+                            <span className="strip-badge-icon">☀️</span>
+                            <span className="strip-label">하루 종일 · 기간 일정</span>
+                            <span className="strip-count">{allDayList.length}개</span>
+                          </div>
+                          <span className="allday-section-hint">전체 제목 및 상세 설명 표시</span>
                         </div>
-                        <div className="allday-strip-chips">
+                        <div className="allday-cards-list">
                           {allDayList.map(ev => {
                             const isHoliday = !!ev.is_holiday
-                            const color = isHoliday ? '#ef4444' : (GOOGLE_COLORS[ev.color_id] || '#3b82f6')
+                            const color = isHoliday ? '#ef4444' : (GOOGLE_COLORS[ev.color_id] || (ev.is_comjjang ? '#38bdf8' : '#6366f1'))
                             const evStartStr = ev.start ? ev.start.slice(0, 10) : ''
                             const evEndStr = ev.end ? ev.end.slice(0, 10) : evStartStr
                             const isMultiDay = evStartStr && evEndStr && evStartStr !== evEndStr
-                            const dateLabel = isMultiDay ? `${evStartStr.slice(5)}~${evEndStr.slice(5)}` : '종일'
+                            const dateLabel = isMultiDay ? `${evStartStr.slice(5)} ~ ${evEndStr.slice(5)}` : '하루 종일'
+                            const isExpanded = expandedEventIds.has(ev.id)
 
                             return (
                               <div
                                 key={ev.id}
-                                className={`allday-pill-chip ${isHoliday ? 'is-holiday' : ''} ${ev.is_comjjang ? 'is-comjjang' : ''}`}
-                                style={{ borderColor: `${color}66`, background: `${color}18` }}
-                                onClick={() => openEditModal(ev)}
-                                title={`${ev.title}${ev.description ? `\n📝 ${ev.description}` : ''}\n(클릭하여 수정)`}
+                                className={`allday-rich-card ${isHoliday ? 'is-holiday' : ''} ${ev.is_comjjang ? 'is-comjjang' : ''} ${isExpanded ? 'expanded' : ''}`}
+                                style={{ borderLeftColor: color }}
                               >
-                                <span className="pill-dot" style={{ background: color }} />
-                                <span className="pill-icon">
-                                  {isHoliday ? '🚩' : ev.is_comjjang ? '💻' : ev.is_routine ? '🚲' : '📌'}
-                                </span>
-                                <span className="pill-title">{ev.title}</span>
-                                <span className="pill-date-badge">{dateLabel}</span>
-                                {ev.is_comjjang && <span className="pill-sub-tag">컴짱</span>}
-                                {!isHoliday && (
-                                  <button
-                                    type="button"
-                                    className="pill-del-btn"
-                                    title="일정 삭제"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleDeleteEvent(ev.id)
-                                    }}
-                                  >
-                                    ✕
-                                  </button>
+                                <div
+                                  className="allday-card-header"
+                                  onClick={() => toggleEventExpand(ev.id)}
+                                  role="button"
+                                  tabIndex={0}
+                                >
+                                  <div className="allday-card-main">
+                                    <div className="allday-card-title-row">
+                                      <span className="allday-card-icon">
+                                        {isHoliday ? '🚩' : ev.is_comjjang ? '💻' : ev.is_routine ? '🚲' : '📌'}
+                                      </span>
+                                      <h4 className="allday-card-title">{ev.title}</h4>
+                                    </div>
+                                    <div className="allday-card-badges">
+                                      <span className="pill-date-badge">{dateLabel}</span>
+                                      {ev.is_comjjang && <span className="comjjang-tag">💻 컴짱</span>}
+                                      {ev.is_routine && <span className="routine-tag">🚲 루틴</span>}
+                                      {isHoliday && <span className="holiday-tag">대한민국 공휴일</span>}
+                                    </div>
+                                  </div>
+
+                                  <div className="allday-card-actions" onClick={e => e.stopPropagation()}>
+                                    {!isHoliday && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          className="icon-btn edit"
+                                          title="수정하기"
+                                          onClick={() => openEditModal(ev)}
+                                        >
+                                          ✏️
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="icon-btn delete"
+                                          title="삭제하기"
+                                          onClick={() => handleDeleteEvent(ev.id)}
+                                        >
+                                          🗑️
+                                        </button>
+                                      </>
+                                    )}
+                                    {ev.description && (
+                                      <span
+                                        className="timeline-chevron"
+                                        onClick={() => toggleEventExpand(ev.id)}
+                                      >
+                                        {isExpanded ? '▲' : '▼'}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* 상세 설명 (Description) - 회의록 내용, 담당자 등 한눈에 읽기 */}
+                                {ev.description && isExpanded && (
+                                  <div className="allday-card-body">
+                                    <div className="allday-desc-box">
+                                      <pre className="allday-desc-text">{ev.description}</pre>
+                                    </div>
+                                  </div>
                                 )}
                               </div>
                             )
@@ -1150,7 +1200,7 @@ function Schedule() {
                                         </div>
 
                                         <div className="timeline-item-badges">
-                                          {ev.is_comjjang && <span className="comjjang-tag">💻 컴짱 회의</span>}
+                                          {ev.is_comjjang && <span className="comjjang-tag">💻 컴짱</span>}
                                           {ev.is_routine && <span className="routine-tag">🚲 루틴</span>}
                                           {ev.location && <span className="timeline-loc-badge">📍 {ev.location}</span>}
                                         </div>
@@ -1198,7 +1248,7 @@ function Schedule() {
                                           <div className="detail-meta-item">
                                             <span className="meta-item-label">🏷️ 분류:</span>
                                             <span className="meta-item-value" style={{ color: color }}>
-                                              {ev.is_comjjang ? '💻 컴짱 회의' : ev.is_routine ? '🚲 일상 루틴' : (ev.source === 'google' ? 'Google Calendar' : 'Bill Studio')}
+                                              {ev.is_comjjang ? '💻 컴짱' : ev.is_routine ? '🚲 일상 루틴' : (ev.source === 'google' ? 'Google Calendar' : 'Bill Studio')}
                                             </span>
                                           </div>
                                         </div>
@@ -1338,7 +1388,7 @@ function Schedule() {
                       })
                     }}
                   />
-                  <span>💻 컴짱 회의 일정</span>
+                  <span>💻 컴짱 일정</span>
                 </label>
 
                 <label className="checkbox-label routine-checkbox">
