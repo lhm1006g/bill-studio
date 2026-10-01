@@ -30,38 +30,57 @@
 
 ```
 /Users/bill/projects/my/bill_studio/
-├── GEMINI.md                ← 현재 파일 (AI 컨텍스트)
-├── frontend/                ← Vite + React
+├── GEMINI.md                ← AI 컨텍스트 & 프로젝트 히스토리
+├── frontend/                ← Vite + React (포트: 5173)
 │   ├── src/
 │   │   ├── pages/
-│   │   │   ├── Dashboard.jsx
-│   │   │   ├── Downloader.jsx
-│   │   │   ├── Editor.jsx
-│   │   │   ├── Subtitle.jsx
-│   │   │   ├── Schedule.jsx
-│   │   │   ├── News.jsx
-│   │   │   └── AiChat.jsx
+│   │   │   ├── Dashboard.jsx        ← 종합 스튜디오 대시보드
+│   │   │   ├── Downloader.jsx       ← 유튜브 고화질/음원 다운로더
+│   │   │   ├── Editor.jsx           ← 동영상 편집기 (자막, AI더빙, BGM, 쇼츠/16:9 내보내기)
+│   │   │   ├── Subtitle.jsx         ← 자막 전용 추출/편집기
+│   │   │   ├── Schedule.jsx         ← 구글 캘린더 연동 세로 타임라인 & 컴짱 일정
+│   │   │   ├── News.jsx             ← 관심종목 테크 뉴스 & AI 오디오 팟캐스트 (실시간 Q&A)
+│   │   │   ├── Meetings.jsx         ← 컴짱 회의록 & 녹화본 AI 타임라인 요약
+│   │   │   ├── Research.jsx         ← 떡상 유튜브 발굴 & AI 벤치마킹 기획실
+│   │   │   └── AiChat.jsx           ← 전용 AI 어시스턴트 채팅 (Gemini/Claude/Ollama)
 │   │   ├── components/
-│   │   │   ├── Sidebar.jsx
-│   │   │   └── Header.jsx
+│   │   │   ├── Sidebar.jsx          ← 사이드바 네비게이션
+│   │   │   ├── Header.jsx           ← 상단 탑바
+│   │   │   └── FloatingAiAssistant.jsx ← 전역 플로팅 AI 비서 위젯 (Cmd+J)
 │   │   ├── App.jsx
 │   │   └── main.jsx
 │   ├── package.json
 │   └── vite.config.js
 │
-├── backend/                 ← FastAPI (Python)
+├── backend/                 ← FastAPI (Python) (포트: 8000)
 │   ├── routers/
-│   │   ├── downloader.py
-│   │   ├── editor.py
-│   │   ├── subtitle.py
-│   │   ├── schedule.py
-│   │   ├── news.py
-│   │   └── ai_chat.py
+│   │   ├── downloader.py    ← 유튜브 다운로드 & 메타데이터 추출 API
+│   │   ├── editor.py        ← 비디오 스트리밍, 무손실 컷, 쇼츠 세로변환, 가로 내보내기
+│   │   ├── subtitle.py      ← Faster-Whisper 음성인식, 자막 싱크 분할 및 다국어 번역
+│   │   ├── tts.py           ← Microsoft Edge-TTS 초고음질 AI 성우 더빙 API
+│   │   ├── schedule.py      ← 구글 캘린더 OAuth2 동기화, 대한민국 공휴일, 일정 CRUD
+│   │   ├── news.py          ← RSS 피드 수집, 관심종목 태깅, AI 데일리 브리핑 & 팟캐스트 오디오
+│   │   ├── meeting.py       ← OBS 녹화본 날짜 감지, 시간순 타임라인 AI 회의록 & 컴짱 일정 연동
+│   │   ├── research.py      ← 유튜브 실시간 검색, 클린 원본 필터, AI 벤치마킹 & 아이디어 보드
+│   │   ├── channels.py      ← 5대 타겟 채널(인류애/스포츠/동물/테크/리센느) 프리셋 관리
+│   │   └── ai_chat.py       ← agy CLI & Ollama 기반 토큰 스트리밍 채팅
 │   ├── models/
-│   │   └── database.py
-│   ├── main.py
-│   ├── requirements.txt
-│   └── studio.db
+│   │   └── database.py      ← SQLite ORM 모델 (일정, 회의록, 채팅, 아이디어, 뉴스 등)
+│   ├── main.py              ← FastAPI 앱 엔트리포인트 및 정적 서빙 마운트
+│   ├── utils.py             ← 시간 파싱 및 공통 유틸리티
+│   ├── credentials.json     ← Google Calendar OAuth2 클라이언트 보안 키
+│   ├── token.json           ← Google Calendar 사용자 OAuth2 토큰 (자동 갱신)
+│   ├── requirements.txt     ← 백엔드 패키지 목록
+│   └── studio.db            ← SQLite 로컬 영구 데이터베이스
+│
+├── downloads/               ← 영상, 오디오, 팟캐스트, 회의록, 자막 보관소
+│   ├── humanity/            ← 인류애 & 감동 실화 채널
+│   ├── sports/              ← 스포츠 명장면 채널
+│   ├── animals/             ← 동물 구조 & 힐링 채널
+│   ├── tech/                ← 미래 테크 & AI 채널
+│   ├── rescene/             ← 리센느 채널
+│   ├── meetings/            ← OBS 회의 녹화본 및 오디오
+│   └── news_podcasts/       ← 일자별 AI 뉴스 팟캐스트 및 기사별 낭독 오디오
 │
 └── README.md
 ```
@@ -70,27 +89,35 @@
 
 ## 🎯 기능 목록 & 핵심 라이브러리
 
-| # | 기능 | 라이브러리 | 설명 |
-|---|------|-----------|------|
-| 1 | **유튜브/영상 다운로드** | `yt-dlp` | URL 입력 → 해상도 선택 → 다운로드 |
-| 2 | **동영상 편집** | `ffmpeg-python` | 자르기, 합치기, 포맷 변환 |
-| 3 | **AI 자막 생성/편집** | `faster-whisper` | 로컬 AI 자막 생성, SRT 편집 |
-| 4 | **일정 관리** | SQLite | 캘린더 UI, 일정 CRUD |
-| 5 | **뉴스 리서치** | `feedparser`, `newspaper3k` | RSS 구독, AI 요약 |
-| 6 | **AI 어시스턴트 채팅** | `ollama` | 로컬 LLM, 대화 기록 저장 |
+| # | 기능 | 라이브러리 / 엔진 | 설명 |
+|---|------|------------------|------|
+| 1 | **유튜브/영상 다운로드** | `yt-dlp`, `ffmpeg` | 고화질 1080p~4K 결합 다운로드, SSE 실시간 진행률, MP3 추출 |
+| 2 | **동영상 편집 & 컷** | `ffmpeg-python`, VideoToolbox | 무손실 자르기, VP9 to H.264 하드웨어 가속 트랜스코딩 |
+| 3 | **AI 자막 생성/번역** | `faster-whisper`, `deep-translator` | 온디바이스 음성인식, 1.2s 텀 자동 분할, 다국어 번역, 실시간 버블 자막 |
+| 4 | **AI 성우 더빙 & BGM** | `edge-tts` | Microsoft 초고음질 AI 성우(인준/선희/현수) + 3채널 오디오 믹싱 |
+| 5 | **쇼츠 9:16 & 가로 16:9 출력** | `Pillow`, `AppleSDGothicNeo` | 상하 블러 쇼츠, 넷플릭스 스타일 라운드 버블 자막 각인(Burn-in) |
+| 6 | **구글 캘린더 일정 관리** | `google-api-python-client`, SQLite | 스마트폰-맥 양방향 동기화, 공휴일 자동 산출, 세로 타임라인 |
+| 7 | **컴짱 회의록 & 일정 연동** | `faster-whisper`, `Gemini 3.8 Flash` | OBS 녹화 파일 날짜 자동 파싱, 시간순 타임라인 요약, 컴짱 일정 자동 등록 |
+| 8 | **뉴스 리서치 & 오디오 팟캐스트** | `feedparser`, `edge-tts`, `Gemini` | RSS 수집, 관심종목 태깅, 데일리 팟캐스트, 청취 중 실시간 음성 Q&A |
+| 9 | **유튜브 발굴 & 벤치마킹** | `yt-dlp`, `Gemini 3.8 Flash` | 해외 순수 원본(노자막) 필터, 떡상 분석 모달, 영감 보관함 |
+| 10 | **전역 AI 비서 & 채팅** | `agy CLI` (Gemini/Claude), `Ollama` | 플로팅 챗 위젯(Cmd+J), 페이지 문맥 인식 프롬프트, 대화 히스토리 |
 
 ---
 
 ## 🚀 개발 단계 (Phase)
 
 - [x] **Phase 1** - 기반 구조 세팅 (Vite + FastAPI + SQLite + 사이드바 UI) ✅
-- [x] **Phase 2** - 유튜브 다운로드 기능 (yt-dlp 고화질 1080p~4K + SSE 실시간 진행률 + 파일목록) ✅
-- [x] **Phase 3** - AI 자막 생성/편집 기능 (faster-whisper 한국어 음성인식 + 실시간 자막 싱크 바 + 스크립트 대본 편집기 + SRT 다운로드) ✅
+- [x] **Phase 2** - 유튜브 다운로드 기능 (yt-dlp 고화질 1080p~4K + SSE 실시간 진행률 + 채널별 폴더) ✅
+- [x] **Phase 3** - AI 자막 생성/편집 기능 (faster-whisper 한국어 음성인식 + 실시간 자막 싱크 바 + 스마트 줄바꿈) ✅
 - [x] **Phase 4** - 동영상 편집 기능 (무손실 자르기, AI 더빙, BGM 믹싱, 쇼츠 세로 변환, 16:9 내보내기) ✅
-- [x] **Phase 5** - 일정 관리 기능 (Google Calendar 실시간 양방향 연동 & 스튜디오 캘린더) ✅
-- [ ] **Phase 6** - 뉴스 리서치 기능
-- [ ] **Phase 7** - AI 어시스턴트 채팅 기능
-- [ ] **Phase 8** - 외부 접속 (Cloudflare Tunnel + PM2 자동실행)
+- [x] **Phase 5** - 일정 관리 기능 (Google Calendar 실시간 양방향 연동 & 세로 타임라인 캘린더) ✅
+- [x] **Phase 6** - 뉴스 리서치 및 AI 오디오 라디오 팟캐스트 & 실시간 Q&A 시스템 ✅
+- [x] **Phase 7** - AI 어시스턴트 채팅 (agy CLI & Ollama 하이브리드 연동) ✅
+- [x] **Phase 7.5** - 유튜브 콘텐츠 발굴 & AI 벤치마킹 기획실 (해외 노자막 원본 필터) ✅
+- [x] **Phase 7.8** - 5대 타겟 채널 올인원 파이프라인 (리서치 ➔ 다운로더 ➔ 편집기 자동 세팅) ✅
+- [x] **Phase 7.9** - 컴짱 회의록 & OBS 녹화본 시간순 타임라인 AI 요약 및 컴짱 일정 자동 연동 ✅
+- [x] **Phase 7.95** - 전역 플로팅 AI 어시스턴트 위젯 (Cmd+J 전역 단축키 & 페이지 문맥 인식) ✅
+- [ ] **Phase 8** - 맥미니 무중단 가동 (PM2 자동실행 + Cloudflare Tunnel 외부 접속) ⏳ 진행 예정
 
 ---
 
@@ -113,7 +140,7 @@
 
 ## 📝 현재 진행 상황
 
-> 마지막 업데이트: 2026-09-27
+> 마지막 업데이트: 2026-10-01
 
 ### 완료된 작업
 - [x] 기술 스택 확정 (Vite + FastAPI + SQLite)
@@ -386,17 +413,111 @@
     - **오른쪽 아코디언 카드 (Card Column)**: 제목 및 뱃지 위주 컴팩트 뷰 + 원클릭 상세(장소, 메모, 수정/삭제) 아코디언 토글
   - **실시간 현재 시간선 (Now Indicator)**: 오늘 날짜 열람 시 현재 시간(`─── 🔴 현재 시간 HH:MM ───`) 펄스 애니메이션 라인 표시 및 지난 일정 차분한 톤 처리(`is-past`)
 
-### 다음 할 일
-- [ ] Phase 8 - 외부 접속 (Cloudflare Tunnel + PM2 맥미니 부팅 자동실행)
+---
 
+## ⚙️ 맥미니 로컬 서버 배포 & 실행 가이드 (Phase 8 대비)
 
+### 1. 필수 시스템 환경 체크
+맥미니 터미널에서 다음 핵심 도구들이 설치되어 있는지 확인합니다:
 
+- [ ] **Node.js 18+ & npm**: `node -v && npm -v`
+- [ ] **Python 3.10+**: `python3 --version`
+- [ ] **ffmpeg (하드웨어 가속 VideoToolbox 포함)**: `ffmpeg -version` (미설치 시 `brew install ffmpeg`)
+- [ ] **agy CLI (Gemini / Claude 스트리밍 엔진)**: `agy --version` (로그인 및 인증 확인)
+- [ ] **Ollama (로컬 온디바이스 LLM)**: `ollama -v && ollama run gemma3:12b` (백그라운드 서비스 활성화)
+- [ ] **Google Calendar OAuth 키 파일**:
+  - `backend/credentials.json` (Google Cloud 콘솔 OAuth 2.0 클라이언트 ID)
+  - `backend/token.json` (로그인 토큰 파일, 최초 로그인 시 자동 생성/갱신)
 
 ---
 
-## ⚙️ 맥미니 환경 체크리스트 (Phase 1 시작 전 확인)
+### 2. 맥미니 최초 세팅 & 구동 절차
 
-- [ ] Node.js 설치 확인 (`node -v`)
-- [ ] Python 설치 확인 (`python3 -v`)
-- [ ] ffmpeg 설치 확인 (`ffmpeg -version`)
-- [ ] ollama 설치 확인 (`ollama -v`)
+#### ① 최신 소스코드 동기화
+```bash
+cd /Users/bill/projects/my/bill_studio
+git pull origin main
+```
+
+#### ② 백엔드 (FastAPI) 세팅
+```bash
+cd /Users/bill/projects/my/bill_studio/backend
+# 가상환경 생성 (최초 1회)
+python3 -m venv venv
+source venv/bin/activate
+
+# 의존성 패키지 설치
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# 수동 실행 테스트 (포트 8000)
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+#### ③ 프론트엔드 (Vite + React) 세팅
+```bash
+cd /Users/bill/projects/my/bill_studio/frontend
+# 패키지 설치
+npm install
+
+# 개발 모드 실행 테스트 (포트 5173)
+npm run dev -- --host
+```
+
+---
+
+### 3. 무중단 서비스 운영 (PM2 프로세스 관리자)
+
+서버 터미널을 닫아도 계속 돌아가고, 맥미니 재부팅 시에도 자동 시작되도록 PM2로 등록합니다.
+
+```bash
+# PM2 글로벌 설치 (미설치 시)
+npm install -g pm2
+
+# 1. 백엔드 실행 등록
+cd /Users/bill/projects/my/bill_studio/backend
+pm2 start "venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000" --name "bill-studio-backend"
+
+# 2. 프론트엔드 빌드 & 서빙 (또는 dev 모드 구동)
+cd /Users/bill/projects/my/bill_studio/frontend
+npm run build
+pm2 start "npm run preview -- --host --port 5173" --name "bill-studio-frontend"
+# (또는 개발 모드로 계속 띄울 경우: pm2 start "npm run dev -- --host" --name "bill-studio-frontend")
+
+# 3. PM2 상태 확인 & 부팅 시 자동실행 등록
+pm2 list
+pm2 save
+pm2 startup
+# (출력되는 sudo env PATH=... 명령어를 터미널에 한 번 실행)
+```
+
+---
+
+### 4. 외부 접속 (Cloudflare Tunnel)
+
+공유기 포트포워딩이나 고정 IP 없이도 외부(스마트폰/외부 노트북)에서 안전한 HTTPS 도메인으로 접속:
+
+```bash
+# Cloudflared 설치
+brew install cloudflare/cloudflare/cloudflared
+
+# Cloudflare 로그인
+cloudflared tunnel login
+
+# 터널 생성 (예: studio-tunnel)
+cloudflared tunnel create studio-tunnel
+
+# 설정 파일(~/.cloudflared/config.yml) 예시:
+# tunnel: <Tunnel-UUID>
+# credentials-file: /Users/bill/.cloudflared/<UUID>.json
+# ingress:
+#   - hostname: studio.yourdomain.com
+#     service: http://localhost:5173
+#   - hostname: api-studio.yourdomain.com
+#     service: http://localhost:8000
+#   - service: http_status:404
+
+# 터널 백그라운드 서비스 등록
+sudo cloudflared service install
+```
+
